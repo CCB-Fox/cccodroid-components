@@ -1,3 +1,14 @@
 {
-  "_doc": "真机验证记录：<组件 id> → <版本> → <底座 gz sha256 前 12 位> → 谁在什么设备上验的。CI 据此给索引里的构建打「已验证」。格式见 docs/recipe.md。"
+  "_doc": "真机验证记录：<组件 id> → <版本> → <底座 gz sha256 前 12 位> → 谁在什么设备上验的。CI 据此给索引里的构建打「已验证」。格式见 docs/recipe.md。",
+  "gh": {
+    "2.102.0-r1": {
+      "13ba8abc3e53": {
+        "date": "2026-10-15",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.9 + v0.2.0 gateway (1b26c6a)",
+        "checks": "installed from signed community index; gh --version OK; skill github-cli installed",
+        "by": "greyoak111"
+      }
+    }
+  }
 }

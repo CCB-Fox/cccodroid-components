@@ -65,8 +65,10 @@ description: <一句话：什么时候该用它>
 `verified.json`：
 
 ```json
-{ "gh": { "2.102.0-r1": { "13ba8abc3e53": { "date": "2026-10-15", "device": "Lenovo TB320FC / Android 15", "by": "greyoak111" } } } }
+{ "gh": { "2.102.0-r1": { "13ba8abc3e53": {
+  "date": "2026-10-15", "device": "Lenovo TB320FC / Android 15", "app": "cccodroid 0.1.9",
+  "checks": "装好、selftest 通过、skill 装上", "by": "greyoak111" } } } }
 ```
 
-只有在真机上装过、`selftest` 过了、按 SKILL.md 实际用过一遍的构建才写进去。
+只有在真机上装过、`selftest` 过了、skill 装上的构建才写进去；`checks` 如实写做了哪些检查。
 没写的构建在 App 里显示"未经真机验证"。
