@@ -1,0 +1,40 @@
+# 合进 main 的配方：打包（已发布的跳过）→ 重出签名索引
+name: build
+on:
+  push:
+    branches: [main]
+    paths: ["recipes/**", "bases.json", "verified.json", "tools/**", ".github/workflows/build.yml"]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "只打这一个组件（留空 = 全部）"
+        required: false
+permissions:
+  contents: write
+concurrency:
+  group: build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WORK: ${{ runner.temp }}/work
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: greyoak111/cccodroid
+          path: app
+          sparse-checkout: devkit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/check-recipes.mjs
+      - name: 打包
+        run: node tools/ci-build.mjs --devkit app/devkit ${{ inputs.only && format('--only {0}', inputs.only) || '' }}
+      - name: 出索引并签名
+        env:
+          INDEX_SIGNING_KEY: ${{ secrets.INDEX_SIGNING_KEY }}
+        run: node tools/build-index.mjs --out "$WORK/index" --upload

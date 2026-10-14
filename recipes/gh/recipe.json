@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "gh",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "GitHub CLI（gh）", "en": "GitHub CLI (gh)" },
+  "desc": {
+    "zh": "GitHub 官方命令行：开 PR、看 Issue、管 Release、跑 Actions。登录后 git 的 https 推送也直接可用。",
+    "en": "GitHub's official command line: pull requests, issues, releases and Actions. Once signed in, git pushes over https work too."
+  },
+  "roots": ["gh"],
+  "bin": ["gh"],
+  "selftest": "gh --version",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "MIT",
+  "homepage": "https://cli.github.com",
+  "maintainers": ["greyoak111"]
+}
