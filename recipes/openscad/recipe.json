@@ -13,6 +13,7 @@
   "bin": ["openscad", "scad-export"],
   "selftest": "scad-export --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "cad",
   "license": "GPL-2.0-only",
   "homepage": "https://openscad.org",
   "maintainers": ["greyoak111"],
