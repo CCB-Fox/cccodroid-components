@@ -10,5 +10,27 @@
         "by": "greyoak111"
       }
     }
+  },
+  "gpu-driver-glibc": {
+    "24.2.6-r1": {
+      "13ba8abc3e53": {
+        "date": "2026-10-15",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.11 (gateway d969186)",
+        "by": "greyoak111",
+        "checks": "installed from signed community index; same-origin files already on device (placed 0, shared 8683); lgpu-info Turnip=OK; removal refused while clvk-glibc depends on it; removed cleanly afterwards, devkit base unchanged"
+      }
+    }
+  },
+  "clvk-glibc": {
+    "2026.10.15-r1": {
+      "13ba8abc3e53": {
+        "date": "2026-10-15",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.11 (gateway d969186)",
+        "by": "greyoak111",
+        "checks": "installed from signed community index; refused before gpu-driver-glibc was installed; same-origin files already on device (placed 0, shared 10); clvk-info: OpenCL 3.0 CLVK on Turnip Adreno, vector add PASS (0/4096 wrong); removed cleanly, devkit base unchanged"
+      }
+    }
   }
 }
