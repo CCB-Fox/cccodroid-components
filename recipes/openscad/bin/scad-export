@@ -1,0 +1,123 @@
+#!{{PREFIX}}/bin/bash
+# scad-export — 用 OpenSCAD 把 .scad 脚本导出成模型文件（cccodroid 的 openscad 组件）
+#
+#   scad-export <输入.scad> [输出文件] [openscad 的其它参数…]
+#   scad-export --selftest
+#
+#   输出文件不给 → 写在输入文件旁边，扩展名换成 .stl
+#   扩展名决定格式：stl（默认，ASCII 文本）/ off / amf / csg / ast / dxf / svg
+#                    dxf 和 svg 只能导 2D 模型（square / circle / polygon…）
+#   其它参数原样交给 openscad，例如 -D 'width=30'、--export-format binstl
+#
+# 说明：Termux 这版 OpenSCAD 是无头构建（NULLGL），不能导出 PNG —— 一导就段错误。
+#
+# 环境变量：
+#   CCODROID_SCAD_LIBS  额外的库目录（冒号分隔），会接在组件自带的 $PREFIX/share/openscad/libraries 前面
+#
+# 退出码：0 导出成功；1 导出失败；2 用法不对
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+OPENSCAD="$PREFIX/bin/openscad"
+
+# 自带的库（MCAD 等）在 $PREFIX/share/openscad/libraries 下，但 openscad 默认不找那里
+LIBS="$PREFIX/share/openscad/libraries"
+[ -n "${CCODROID_SCAD_LIBS:-}" ] && LIBS="$CCODROID_SCAD_LIBS:$LIBS"
+
+run() {                      # run <输入> <输出> [额外参数…]
+  local in="$1" out="$2"; shift 2
+  OPENSCADPATH="$LIBS${OPENSCADPATH:+:$OPENSCADPATH}" \
+    "$OPENSCAD" -o "$out" "$@" "$in" 2>&1
+}
+
+# 只留真正要看的行：那一句 "Could not initialize localization." 是这版没装翻译文件导致的，
+# 每次都会打，跟模型没关系
+noise() { grep -v -e "Could not initialize localization." \
+                  -e "^Geometries in cache:" -e "^Geometry cache size in bytes:" \
+                  -e "^CGAL Polyhedrons in cache:" -e "^CGAL cache size in bytes:" \
+                  -e "^Total rendering time:"; }
+
+selftest() {
+  local t rc=0 mcad="?"
+  t="$(mktemp -d "${TMPDIR:-/tmp}/scad-selftest.XXXXXX")" || { echo "✗ 建不了临时目录"; return 1; }
+
+  printf 'cube(10);\n' > "$t/cube.scad"
+  if run "$t/cube.scad" "$t/cube.stl" > "$t/log"; then :; else rc=1; fi
+  if [ -s "$t/cube.stl" ] && grep -q "facet normal" "$t/cube.stl"; then
+    echo "✓ cube(10) → STL：$(stat -c%s "$t/cube.stl") 字节，$(grep -c "facet normal" "$t/cube.stl") 个面"
+  else
+    echo "✗ cube(10) 没导出成 STL"; noise < "$t/log" | tail -5 | sed 's/^/    /'; rc=1
+  fi
+
+  # 组件自带的 MCAD 库能不能 use —— 这是这个包装脚本存在的主要理由
+  printf 'use <MCAD/boxes.scad>\nroundedBox([20,20,20], 3, true);\n' > "$t/mcad.scad"
+  if run "$t/mcad.scad" "$t/mcad.stl" > "$t/mcad.log" && [ -s "$t/mcad.stl" ] \
+     && grep -q "facet normal" "$t/mcad.stl"; then
+    mcad="OK"; echo "✓ use <MCAD/boxes.scad> 可用：$(grep -c "facet normal" "$t/mcad.stl") 个面"
+  else
+    mcad="FAIL"; echo "✗ MCAD 库用不了"; noise < "$t/mcad.log" | tail -5 | sed 's/^/    /'; rc=1
+  fi
+
+  rm -rf "$t"
+  if [ $rc -eq 0 ]; then
+    echo "===== 总结 ===== 导出=OK MCAD=$mcad 版本=$("$OPENSCAD" --version 2>&1 | head -1 | awk '{print $NF}')"
+  else
+    echo "===== 总结 ===== 导出=FAIL MCAD=$mcad"
+  fi
+  return $rc
+}
+
+usage() {
+  sed -n '2,14p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in
+  --selftest) selftest; exit $? ;;
+  -h|--help) usage 0 ;;
+  "") usage 2 ;;
+esac
+
+[ -x "$OPENSCAD" ] || { echo "scad-export: 找不到 $OPENSCAD —— openscad 组件没装好？" >&2; exit 1; }
+
+IN="$1"; shift
+[ -f "$IN" ] || {
+  if [ -d "$IN" ]; then echo "scad-export: 这是个目录，要给一个 .scad 文件：$IN" >&2
+  else echo "scad-export: 找不到输入文件：$IN" >&2; fi
+  exit 1
+}
+IN="$(cd "$(dirname "$IN")" && pwd)/$(basename "$IN")"
+
+OUT=""
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then OUT="$1"; shift; fi   # 不以 - 开头的第一个参数当输出文件
+[ -n "$OUT" ] || OUT="$(dirname "$IN")/$(basename "${IN%.*}").stl"
+OUTDIR="$(dirname "$OUT")"
+mkdir -p "$OUTDIR" || { echo "scad-export: 建不了输出目录：$OUTDIR" >&2; exit 1; }
+OUT="$(cd "$OUTDIR" && pwd)/$(basename "$OUT")"
+
+case "$OUT" in
+  *.png|*.PNG) echo "scad-export: 这版 OpenSCAD 是无头构建（NULLGL），导 PNG 会段错误 —— 导 STL/OFF/AMF/CSG 或 2D 的 DXF/SVG 吧" >&2; exit 1 ;;
+esac
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/scad-export.XXXXXX")" || exit 1
+trap 'rm -f "$LOG"' EXIT
+
+rc=0
+run "$IN" "$OUT" "$@" > "$LOG" 2>&1 || rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "scad-export: OpenSCAD 失败（退出码 $rc）：" >&2
+  noise < "$LOG" | tail -10 | sed 's/^/  /' >&2
+  exit 1
+fi
+
+if [ ! -s "$OUT" ]; then
+  echo "scad-export: openscad 说成功了，但 $OUT 是空的 —— 模型是空的？" >&2
+  noise < "$LOG" | tail -10 | sed 's/^/  /' >&2
+  exit 1
+fi
+
+# WARNING 照样打出来（比如「未知模块」——那说明脚本有问题，别当没看见）
+noise < "$LOG" | grep -E "^(WARNING|ERROR|DEPRECATED)" | sed 's/^/  /' >&2
+echo "$OUT"
