@@ -12,6 +12,7 @@
   "bin": ["llama-cli", "llama-server", "llama-bench", "llama-run"],
   "selftest": "llama-run --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "ai",
   "license": "MIT",
   "homepage": "https://github.com/ggml-org/llama.cpp",
   "maintainers": ["greyoak111"],
