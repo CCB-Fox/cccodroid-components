@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "gnucap",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "gnucap（电路仿真）", "en": "gnucap (circuit simulation)" },
+  "desc": {
+    "zh": "另一套电路仿真器：自己一套命令语言（命令要带点前缀、探针要写在分析前面），跑瞬态 / 工作点 / 直流扫描 / 交流分析。命令行批处理，没有图形界面（要画波形就让 Claude 生成 SVG）。",
+    "en": "A second circuit simulator with its own command language (dot-prefixed commands, probes declared before the analysis). Runs transient / operating-point / DC sweep / AC analyses. Command-line batch only (no GUI; ask Claude to draw an SVG for waveforms)."
+  },
+  "roots": ["gnucap"],
+  "bin": ["gnucap", "gnucap-run"],
+  "selftest": "gnucap-run --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://www.gnu.org/software/gnucap/gnucap.html",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/gnucap-run": { "src": "bin/gnucap-run", "mode": "755" }
+  },
+  "notes": "gnucap-run 不是装饰：gnucap **出错了也返回 0**，实测元件名写错、命令不存在、命令少点前缀（tran 被当传输线）、.print 写在分析命令后面（探针不生效、结果里没有数据列）全都是 rc=0。包装脚本扫它输出里的错误标记（\"^ ?\" 和 \"can't find:\"）并返回 1；selftest 真跑一个 RC 充电电路、和解析解 5·(1−e⁻⁵)=4.96631 V 对比。注意步长：gnucap 内部步长跟着打印间隔走，1 ms 粗步长会有约 0.1% 误差，selftest 用 0.05 ms。"
+}
