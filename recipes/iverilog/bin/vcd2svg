@@ -236,8 +236,17 @@ def main(argv):
 
 
 def selftest():
-    import tempfile
+    import tempfile, shutil
+    # 自检的临时目录跑完必须删掉：这个函数会被 CI（和用户）反复跑，
+    # 漏在 $TMPDIR 里就是一堆空目录（中途 die() 退出也要删，所以用 try/finally）。
     tmp = tempfile.mkdtemp(prefix="vcd2svg-selftest.")
+    try:
+        return _selftest_in(tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _selftest_in(tmp):
     vcd = os.path.join(tmp, "t.vcd")
     with open(vcd, "w") as fh:
         fh.write("""$timescale 1ns $end
