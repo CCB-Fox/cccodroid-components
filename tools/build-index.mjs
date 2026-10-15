@@ -69,6 +69,7 @@ for (const r of recipes()) {
   if (!byBase.size) continue;
   idx.components[r.id] = {
     name: r.name, desc: r.desc, kind: r.kind || "termux", license: r.license, homepage: r.homepage || "",
+    category: r.category || "other",
     maintainers: r.maintainers || [], needs: r.needs || {}, requires: r.requires || [],
     builds: [...byBase.values()].map((m) => {
       let v = verified[r.id]?.[m.version]?.[m.base.gz.slice(0, 12)] || null;

@@ -32,6 +32,7 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 | `bin` | ✓ | 入口命令（相对 `$PREFIX/bin`），App 里显示 |
 | `selftest` | ✓ | 装好后能证明它能跑的一条命令，比如 `gh --version` |
 | `license` | ✓ | 上游软件的许可证（SPDX 写法） |
+| `category` | ✓ | 分类，App 扩展页的分类索引条按它分：`dev` 开发工具 · `office` 文档办公 · `media` 图像影音 · `science` 科学计算 · `eda` 电子设计 · `cad` 3D 与建模 · `ai` AI 推理 · `gpu` GPU 与驱动 · `net` 网络 · `other` 其他 |
 | `repos` | | 额外的 Termux 仓库，目前只有 `"x11"` |
 | `exclude` | | 闭包里不要的包（比如 postinst 会失败的可选依赖） |
 | `files` | | 额外放进包里的文件：`{ "usr/bin/xxx": { "src": "xxx", "mode": "755" } }`。目标只能在 `usr/` 下；内容里的 `{{PREFIX}}` 会换成真实前缀 |
