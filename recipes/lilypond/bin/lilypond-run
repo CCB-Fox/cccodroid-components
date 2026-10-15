@@ -1,0 +1,144 @@
+#!{{PREFIX}}/bin/bash
+# lilypond-run — 用 LilyPond 把文本乐谱排版成 PDF / PNG / SVG / MIDI（cccodroid 的 lilypond 组件）
+#
+#   lilypond-run <输入.ly> [输出基名] [lilypond 的其它参数…]
+#   lilypond-run --selftest
+#
+#   输出基名不给 → 写在输入文件旁边（同名）。
+#   扩展名决定格式：pdf（默认）/ png / svg。
+#   注意 lilypond 的 -o 收的是**基名**不是文件名（给它 out.pdf 会得到 out.pdf.pdf），
+#   格式也是靠开关而不是扩展名 —— 这两件事包装脚本已经替你办了。
+#   乐谱里写了 \midi {} 的话，同一基名下还会同时出 .midi。
+#   其它参数原样交给 lilypond，例如 -dresolution=300（PNG 用）、-dbackend=svg。
+#
+#   产物路径按行打在 stdout（一个文件一行），失败时错误在 stderr、退出码 1。
+#
+# 说明：默认加 -dno-point-and-click —— PDF 里不嵌源文件绝对路径，文件更小，
+#       也不依赖任何编辑器集成。
+#
+# 退出码：0 成功；1 失败；2 用法不对
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+LILY="$PREFIX/bin/lilypond"
+
+# 临时目录兜底：LilyPond 内部的 Guile 找不到可写的临时目录时，会退到根目录下的临时路径 ——
+# 安卓上没有那个目录，于是排版阶段（Drawing systems…）直接 open-fdes ENOENT 失败，
+# 而同一个乐谱的 MIDI 却能正常出来，看着像「PDF 坏了」。这里统一兜住。
+TMP="${TMPDIR:-}"
+if [ -z "$TMP" ] || [ ! -d "$TMP" ]; then TMP="$PREFIX/tmp"; fi
+mkdir -p "$TMP" 2>/dev/null
+export TMPDIR="$TMP"
+
+# LilyPond 自己给的一行 "Success: compilation successfully completed" 之类照留；
+# 这两句是每次都会打的噪音
+noise() { grep -v -e "^GNU LilyPond [0-9]" -e "^Processing \`"; }
+
+selftest() {
+  local t rc=0 out="" ver
+  t="$(mktemp -d "$TMP/lily-selftest.XXXXXX")" || { echo "✗ 建不了临时目录"; return 1; }
+
+  cat > "$t/t.ly" <<'LY'
+\version "2.26.0"
+\header { title = "cccodroid selftest" }
+\score {
+  \new Staff { \clef treble \time 2/4 c'4 d' e' f' | g'2 }
+  \layout { }
+  \midi { }
+}
+LY
+  if ! "$LILY" -dno-point-and-click -o "$t/t" "$t/t.ly" > "$t/log" 2>&1; then
+    echo "✗ lilypond 退出码非 0："; noise < "$t/log" | tail -8 | sed 's/^/    /'; rc=1
+  fi
+
+  # 乐谱本身要排出来：PDF 看魔数，不是看「文件在不在」
+  if [ -s "$t/t.pdf" ] && [ "$(head -c 5 "$t/t.pdf")" = "%PDF-" ]; then
+    echo "✓ 排版出 PDF：$(stat -c%s "$t/t.pdf") 字节"
+    out="PDF"
+  else
+    echo "✗ 没有生成合法 PDF"; noise < "$t/log" | tail -8 | sed 's/^/    /'; rc=1
+  fi
+
+  # 音乐字体（Emmentaler）没装好时 PDF 也可能出来但是空的 —— 拿 MIDI 一起验
+  if [ -s "$t/t.midi" ] && [ "$(head -c 4 "$t/t.midi")" = "MThd" ]; then
+    echo "✓ 同时出 MIDI：$(stat -c%s "$t/t.midi") 字节"
+    out="$out+MIDI"
+  else
+    echo "✗ \\midi {} 没出 MIDI"; noise < "$t/log" | tail -8 | sed 's/^/    /'; rc=1
+  fi
+
+  rm -rf "$t"
+  ver="$("$LILY" --version 2>&1 | head -1 | awk '{print $3}')"
+  if [ $rc -eq 0 ]; then
+    echo "===== 总结 ===== 排版=OK 输出=$out 版本=$ver"
+  else
+    echo "===== 总结 ===== 排版=FAIL 版本=$ver"
+  fi
+  return $rc
+}
+
+usage() {
+  sed -n '2,19p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in
+  --selftest) selftest; exit $? ;;
+  -h|--help) usage 0 ;;
+  "") usage 2 ;;
+esac
+
+[ -x "$LILY" ] || { echo "lilypond-run: 找不到 $LILY —— lilypond 组件没装好？" >&2; exit 1; }
+
+IN="$1"; shift
+[ -f "$IN" ] || {
+  if [ -d "$IN" ]; then echo "lilypond-run: 这是个目录，要给一个 .ly 文件：$IN" >&2
+  else echo "lilypond-run: 找不到输入文件：$IN" >&2; fi
+  exit 1
+}
+IN="$(cd "$(dirname "$IN")" && pwd)/$(basename "$IN")"
+
+BASE=""
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then BASE="$1"; shift; fi   # 不以 - 开头的第一个参数当输出基名
+[ -n "$BASE" ] || BASE="${IN%.*}"
+
+# lilypond 的 -o 收的是**基名**，格式由命令行开关决定（--png / -dbackend=svg），
+# 不看扩展名 —— 直接给它 out.pdf 会得到 out.pdf.pdf。这里按扩展名把开关补上，
+# 再把扩展名去掉交给 -o，于是「扩展名决定格式」在包装脚本这一层是真的。
+case "$BASE" in
+  *.png|*.PNG) case " $* " in *" --png "*) : ;; *) set -- "$@" --png ;; esac ;;
+  *.svg|*.SVG) case " $* " in *" -dbackend"*) : ;; *) set -- "$@" -dbackend=svg ;; esac ;;
+esac
+BASE="${BASE%.*}"
+mkdir -p "$(dirname "$BASE")" || { echo "lilypond-run: 建不了输出目录：$(dirname "$BASE")" >&2; exit 1; }
+BASE="$(cd "$(dirname "$BASE")" && pwd)/$(basename "$BASE")"
+
+LOG="$(mktemp "$TMP/lilypond-run.XXXXXX")" || exit 1
+trap 'rm -f "$LOG"' EXIT
+
+rc=0
+"$LILY" -dno-point-and-click -o "$BASE" "$@" "$IN" > "$LOG" 2>&1 || rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "lilypond-run: LilyPond 失败（退出码 $rc）：" >&2
+  noise < "$LOG" | tail -12 | sed 's/^/  /' >&2
+  exit 1
+fi
+
+# 警告照样转出来（缺字形、\version 不符、歌词对不上声部都是以 warning 形式出现的，别当没看见）。
+# 注意 LilyPond 的警告带 `文件:行:列: ` 前缀，只按行首匹配会全漏掉。
+noise < "$LOG" | grep -E "(^|[[:space:]])(warning|error|fatal error):" | sed 's/^/  /' >&2
+
+# 以「文件真的出来了」为准：LilyPond 出错时也可能返回 0
+produced=0
+for f in "$BASE".*; do
+  [ -s "$f" ] || continue
+  case "$f" in *.log) continue ;; esac        # 自己的日志不算产物
+  echo "$f"; produced=1
+done
+[ "$produced" = 1 ] || {
+  echo "lilypond-run: lilypond 说成功了，但 $BASE.* 里没有任何产物 —— 乐谱里没有 \\layout/\midi？" >&2
+  noise < "$LOG" | tail -12 | sed 's/^/  /' >&2
+  exit 1
+}
