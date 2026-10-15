@@ -71,5 +71,104 @@
         "by": "greyoak111"
       }
     }
+  },
+  "gnucap": {
+    "20210107-4-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 73, shared 0; skill gnucap installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.9663V; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "godot": {
+    "4.7.2-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 4289, shared 0; skill godot installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "gpu-bench": {
+    "3.1.26.09.26-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 166, shared 0; skill gpu-bench installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged; deps installed for the test: gpu-driver",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "iverilog": {
+    "13.0-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 55, shared 0; skill iverilog installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "libreoffice": {
+    "26.8.1.1-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 7850, shared 0; skill office-convert installed; selftest exit 0: ===== 总结 ===== 转换=OK 输出=PDF 中文=OK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "llama-cpp": {
+    "0.6.0-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 87, shared 0; skill llama-cpp installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "ngspice": {
+    "47-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 36, shared 0; skill ngspice installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.96644607e+00 数据点=80; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "openscad": {
+    "2021.01-r1": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 349, shared 0; skill openscad installed; selftest exit 0: ===== 总结 ===== 导出=OK MCAD=OK 版本=2026.07.19; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "yosys": {
+    "0.70-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "installed from signed index; placed 1482, shared 0; skill yosys installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }
