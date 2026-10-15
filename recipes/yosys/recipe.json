@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "yosys",
   "kind": "termux",
-  "revision": 2,
+  "revision": 3,
   "name": {
     "zh": "Yosys（Verilog 综合）",
     "en": "Yosys (Verilog synthesis)"
@@ -34,7 +34,11 @@
     "usr/bin/yosys-run": {
       "src": "bin/yosys-run",
       "mode": "755"
+    },
+    "usr/share/cccodroid/components/yosys/abc-exe": {
+      "src": "bin/abc-exe",
+      "mode": "755"
     }
   },
-  "notes": "yosys-run 存在的理由：本机的 yosys 走到 ABC 那一步会**永远卡住**（实测：yosys 把 ABC 脚本从管道喂过去后不关写端也不发 quit，ABC 停在 `abc 07> ` 提示符上互等；翻 /proc/<yosys>/fd 能看到它一直攥着那个写端 pipe），没有报错、没有超时、一个字都不说，而 `synth` 默认就会走到 ABC。包装脚本做两件事：给脚本里的 `abc` 自动补 `-exe <fifo 包装>`（转发脚本、看到哨兵 YOSYS_ABC_DONE 就补 quit，ABC 正常退出，且真做优化：4 位计数器的 $_AND_/$_XOR_ 变成 $_NAND_/$_XNOR_）；以及遇到不带 -noabc 的 `synth`（-p / -s / 位置脚本 / -S 四条路）当场拦住并说明两条出路，免得静悄悄卡死。selftest 跑综合 + stat + 写网表 + 走 ABC + 形式等价 + 验证守卫拦得住，约 0.5 秒。 r2：守卫按实测补齐 —— 逐个试了 20 条 synth/abc 命令：走裸 abc 的只有 synth（有 -noabc）、synth_easic（本机也没有它的 eTools 库）、synth_gatemate -luttree（加 -abc_new 就放行），这三条一律拦下；其余 17 条 synth_* 实测走 **ABC9 且不卡**（strace 确认 abc9 起了 1 个 yosys-abc 并正常回收），全部放行 —— 不搞「synth* 一律拦」，因为那会把能跑的流程逼回内置 LUT 映射。另有 -c（Tcl）支持拦下：tcl 里能随便调命令，按行扫不到。selftest 增加 synth_ice40 / abc9 / -luttree / -c 四条守卫测试。"
+  "notes": "yosys-run 存在的理由：本机的 yosys 走到 abc 会**永远卡住**（没有报错、没有超时），而 `synth` 默认就会走到 abc。机制对着 Yosys 0.70 源码查清了：abc 挑可执行文件时先读设计里的 scratchpad 变量 `abc.exe`（passes/techmap/abc.cc:2040），默认值是 `<yosys 自己所在目录>/yosys-abc`（kernel/yosys.cc:661，不是字面量 \"yosys-abc\"）；然后按**字符串相等**选路（abc.cc:147）——相等走常驻 ABC 协进程（管道协议），本机这条互等卡死；不等则把脚本写成临时文件、跑一次 `<exe> -s -f script`，正常。所以 yosys-run 做的事是：在**用户自己的命令流最前面**插一句 `scratchpad -set abc.exe <组件目录>/abc-exe`（abc-exe 是配方自带的一个小包装，只把参数转给真的 yosys-abc，作用就是当那个“另一个字符串”）。插的位置按 yosys 的执行顺序（kernel/driver.cc:604-668）：`-s`/`-c` 脚本和 `-S` 的 synth 都排在 `-p` **之前**，所以分别写进脚本第一行 / 把 `-S` 换成等价的 `-p \"注入; synth\"`；`-p` 与位置上的 .ys 就插在命令串、文件开头。实测（Yosys 0.70，真机）：不带 -noabc 的 synth、synth_gatemate -luttree、synth_ecp5 -noabc9、.ys 里嵌套 script 调 abc、-c（Tcl）里跑 synth、-S —— 六条以前全部 rc=124 卡死的写法，现在全部 rc=0 并出网表（synth 那条核对过走了 ABC 且 stat 有 $_SDFF_*）。对照实验：scratchpad 里填「跟默认值相同的绝对路径」照样卡（证明是字符串比较），填 abc-exe 就好；绕过 yosys-run 直接调 yosys 仍然卡（selftest 里有这条对照，只提示不算失败）。ABC9 那批（synth_ice40/ecp5/gowin/xilinx/intel…17 条）本来就不卡，且 abc9 不读 abc.exe，不受影响。只有 synth_easic 仍然跑不了 —— 但它现在是**明确报错**（要 eTools 的库，本机没有），不是静默卡死。selftest 约 21 秒，除了原来那几项（综合/写网表/显式 abc/形式等价/synth_ice40），把上面六条老卡死点全跑了一遍。"
 }
