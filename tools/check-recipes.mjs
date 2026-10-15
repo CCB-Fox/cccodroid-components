@@ -3,8 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { recipes } from "./lib.mjs";
 
-const KNOWN = new Set(["schema", "id", "kind", "revision", "name", "desc", "repos", "roots", "exclude", "files",
-  "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
+const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
+  "fetch", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
+const KINDS = new Set(["termux", "glibc"]);
+// fetch 不许从市场自己的 Release 取东西：那等于绕开评审往里塞二进制（"不带自带二进制"这条就废了）
+const SELF_HOSTS = [/^https:\/\/github\.com\/greyoak111\/cccodroid-components\//i,
+                    /^https:\/\/objects\.githubusercontent\.com\/.*cccodroid-components/i];
 let bad = 0;
 const err = (r, m) => { console.log(`✗ ${r}: ${m}`); bad++; };
 const ids = new Set();
@@ -15,7 +19,8 @@ for (const r of recipes()) {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(r.id || "")) err(n, "id 只能用小写字母、数字、-（≤40）");
   if (ids.has(r.id)) err(n, "id 重复"); ids.add(r.id);
   if (r.id === "index") err(n, "index 是保留名（索引的 Release 用它）");
-  if ((r.kind || "termux") !== "termux") err(n, `kind "${r.kind}" 还不支持（v1 只有 termux）`);
+  if (!KINDS.has(r.kind || "termux")) err(n, `kind "${r.kind}" 还不支持（termux / glibc）`);
+  if (r.version !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(r.version)) err(n, "version 只能用字母数字 . _ -（≤40）");
   if (!Number.isInteger(r.revision) || r.revision < 1) err(n, "revision 必须是 ≥1 的整数");
   for (const k of ["name", "desc"]) if (!r[k] || !r[k].zh || !r[k].en) err(n, `${k} 要有 zh 和 en`);
   if (!Array.isArray(r.roots) || !r.roots.length) err(n, "roots 不能为空");
@@ -26,6 +31,20 @@ for (const r of recipes()) {
   for (const [p, f] of Object.entries(r.files || {})) {
     if (!p.startsWith("usr/") || p.includes("..")) err(n, "files 只能放进 usr/ 下: " + p);
     if (!f.src || f.src.includes("..") || !fs.existsSync(path.join(r.dir, f.src))) err(n, "files 的 src 不存在: " + f.src);
+  }
+  for (const [p, f] of Object.entries(r.fetch || {})) {
+    if (!p.startsWith("usr/") || p.includes("..")) err(n, "fetch 只能放进 usr/ 下: " + p);
+    if (f.link) {
+      // 只做一条软链（不下载）：常见于上游库的 SONAME 是 libX.so.1、而文件叫 libX.so
+      if (f.url || f.sha256) err(n, `fetch 的 link 条目不该再有 url/sha256: ${p}`);
+      if (f.link.includes("..")) err(n, `fetch 的 link 目标不能带 ..: ${p}`);
+      continue;
+    }
+    if (!/^https:\/\/\S+$/.test(f.url || "")) err(n, `fetch 的 url 必须是 https: ${p}`);
+    else if (SELF_HOSTS.some((re) => re.test(f.url))) err(n, `fetch 不能从市场自己的 Release 取（等于自带二进制）: ${p}`);
+    if (!/^[0-9a-f]{64}$/.test(f.sha256 || "")) err(n, `fetch 的 sha256 要写全（64 位小写十六进制）: ${p}`);
+    if (!f.why) err(n, `fetch 要写 why：这是什么、为什么不能走 Termux 官方仓库: ${p}`);
+    if (f.mode !== undefined && !/^[0-7]{3,4}$/.test(String(f.mode))) err(n, `fetch 的 mode 是八进制三位/四位: ${p}`);
   }
   const sk = path.join(r.dir, "skill", "SKILL.md");
   if (!fs.existsSync(sk)) err(n, "缺 skill/SKILL.md（告诉 Claude 怎么用这个组件）");
