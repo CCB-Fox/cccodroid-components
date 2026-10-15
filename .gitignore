@@ -2,3 +2,5 @@ work/
 node_modules/
 *.pem
 !keys/*.pub.pem
+__pycache__/
+*.py[co]
