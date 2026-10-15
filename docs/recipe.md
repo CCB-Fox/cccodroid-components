@@ -26,7 +26,7 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 | `id` | ✓ | 和目录名一致；小写字母、数字、`-`，≤40 字符；`index` 保留 |
 | `kind` | ✓ | `"termux"`（`$PREFIX/bin` 里的程序）或 `"glibc"`（Linux arm64 / glibc 程序，装在 `$PREFIX/glibc/`）。`"display"`（需要图形显示）为后续保留 |
 | `revision` | ✓ | 配方修订号，≥1。发布版本是 `<上游版本>-r<revision>`；上游没变但配方改了（换了 skill、包装脚本）就加一 |
-| `version` | | 自己指定版本（覆盖 `roots[0]` 的版本）。配 `fetch` 的组件用它——版本来自上游构件，不该跟着 `roots[0]` 走 |
+| `version` | | 自己指定上游版本（代替 `roots[0]` 的版本）；发布版本照样是 `<version>-r<revision>`。配 `fetch` 的组件用它——版本来自上游构件，不该跟着 `roots[0]` 走 |
 | `name` / `desc` | ✓ | `{ "zh": "...", "en": "..." }`，App 里显示 |
 | `roots` | ✓ | 要装的 Termux 包名。依赖自动求闭包；`roots[0]` 的版本就是组件的上游版本 |
 | `bin` | ✓ | 入口命令（相对 `$PREFIX/bin`），App 里显示 |
@@ -36,7 +36,8 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 | `exclude` | | 闭包里不要的包（比如 postinst 会失败的可选依赖） |
 | `files` | | 额外放进包里的文件：`{ "usr/bin/xxx": { "src": "xxx", "mode": "755" } }`。目标只能在 `usr/` 下；内容里的 `{{PREFIX}}` 会换成真实前缀 |
 | `fetch` | | 仓库之外的上游构件（官方仓库里没有的东西），见下节 |
-| `needs` | | `{ "shizuku": bool, "display": bool, "gpu": bool }` —— 用到这些时如实写，App 据此提示 |
+| `needs` | | `{ "shizuku": bool, "display": bool, "gpu": bool \| "adreno" }` —— 用到这些时如实写，App 据此提示。`gpu: "adreno"` = 只能用在高通骁龙（Adreno GPU）上，App 在别家 SoC 上直接不给装（需要新版 App；旧版忽略） |
+| `requires` | | 依赖的其它组件 id，例如 `["gpu-driver-glibc"]`。App 会让用户先装它们；有组件依赖时不让卸载被依赖的那个（需要新版 App；旧版忽略） |
 | `homepage` | | 上游主页 |
 | `maintainers` | | 维护这个配方的 GitHub 用户名 |
 | `notes` | | 给维护者看的备注 |
@@ -63,11 +64,11 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 
 - **sha256 写全**（64 位小写十六进制）：CI 下载后先核对再入包，对不上就构建失败。
 - `mode`：权限（默认 `644`）。要装可执行文件就得写 `"755"`。
-- `link`：只做一条软链、不下载。上游库的 SONAME 是 `libX.so.1` 而文件叫 `libX.so` 时必须补这条 ——
-  链接过它的程序运行时找的是 `.so.1`。
+- `link`：只做一条软链、不下载，**目标只能写同目录的文件名**（不许绝对路径、不许带 `/`）。上游库的 SONAME 是
+  `libX.so.1` 而文件叫 `libX.so` 时必须补这条 —— 链接过它的程序运行时找的是 `.so.1`。
 - `why`：这是什么、为什么不能走 Termux 官方仓库。会进构建清单，给以后查的人看。
 - `source` / `version`：出处、版本（只记账；默认 `pypi` / 从文件名猜）。配 `fetch` 的组件通常自己写 `version`。
-- 不许指向**市场自己的 Release**（那等于自带二进制），也不许 http。
+- 不许指向**市场仓库自己**（Release、raw、codeload 都算 —— 那等于自带二进制），也不许 http。
 - 只放**这个组件自己**运行要用的东西，不要顺手捎带别的工具；许可证必须允许再分发。
 - `roots` 照写（决定跟着哪个底座打包、`roots[0]` 也是版本基准之一）；底座里已有的包不会重复打。
 
