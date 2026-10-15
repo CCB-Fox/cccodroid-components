@@ -18,6 +18,10 @@ description: 用 Yosys 综合 Verilog/SystemVerilog：把 RTL 变成门级网表
 
 **2. `synth` 一定要带 `-noabc`。**
 
+（只针对通用的 `synth` 这一条；`synth_ice40` 这类具体流程不用 —— 它们走 ABC9，见下面
+「FPGA 流程」。`synth` 的 `-noabc` 是保命的，`synth_ice40` 的 `-noabc` 是另一件事，
+别混。）
+
 不带就是卡死。`synth -noabc` 出来的门级网表、`stat` 统计、`write_verilog` 都完全正常：
 
 ```sh
@@ -32,16 +36,36 @@ yosys-run -p "read_verilog and2.v; synth -noabc; stat"
 yosys-run -p "read_verilog ctr.v; synth -noabc; abc -liberty cells.lib; stat"
 ```
 
+**FPGA 流程同样要经过 `yosys-run`**（`synth_ice40` / `synth_ecp5` / `synth_xilinx` /
+`synth_gowin` / `synth_anlogic` … 一个都别直接调 `yosys`）。好消息是这些流程走的是
+**ABC9**，而 ABC9 在这台机器上**不卡**（17 条流程逐个实测 rc=0）—— 所以它们直接跑就行：
+
+```sh
+yosys-run -p "read_verilog ctr.v; synth_ice40; stat"        # ✓ 能跑通（abc9）
+```
+
+例外只有两条，`yosys-run` 会替你挡住（它们走的是**裸 abc**，必卡）：
+
+| 命令 | 怎么办 |
+|---|---|
+| `synth_easic` | 本机不支持（映射用 `abc -liberty`，还要 eTools 的库文件） |
+| `synth_gatemate -luttree` | 加 `-abc_new`（等价开关，实测 rc=0），或者不用 `-luttree` |
+
+另外 **`-c <tcl 脚本>` 不支持**（tcl 里能随便调命令，扫不到）：把要跑的写成 `.ys`，
+用 `-s` 或位置参数交给 `yosys-run`。
+
 ## 先自检
 
 ```sh
 yosys-run --selftest
 ```
 
-最后一行 `===== 总结 ===== 全部通过` 就是好的（约 0.5 秒）。
-它跑的是：综合一个 5 行模块看 `stat`、写网表、走一遍 ABC、形式等价检查，以及验证守卫拦得住。
+最后一行 `===== 总结 ===== 全部通过` 就是好的（约 3 秒）。
+它跑的是：综合一个 5 行模块看 `stat`、写网表、走一遍 ABC、形式等价检查、
+`synth_ice40`（ABC9 流程）能跑完、`abc9` 能跑完、以及三类守卫（`synth` / `-luttree` / `-c`）
+真的拦得住。
 
-`yosys-run --why` 把 ABC 那个坑单独讲一遍。
+`yosys-run --why` 把 ABC 那个坑和整个 `synth` 家族的实测结论讲一遍。
 
 ## 基本用法
 

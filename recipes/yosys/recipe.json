@@ -2,22 +2,39 @@
   "schema": 1,
   "id": "yosys",
   "kind": "termux",
-  "revision": 1,
-  "name": { "zh": "Yosys（Verilog 综合）", "en": "Yosys (Verilog synthesis)" },
+  "revision": 2,
+  "name": {
+    "zh": "Yosys（Verilog 综合）",
+    "en": "Yosys (Verilog synthesis)"
+  },
   "desc": {
     "zh": "Verilog / SystemVerilog 综合与形式化：把 RTL 综合成门级网表，看资源占用、写网表文件、做等价检查和 SAT 求解。命令行批处理，没有图形界面。",
     "en": "Verilog / SystemVerilog synthesis and formal: synthesise RTL to a gate-level netlist, report resource usage, write netlists, and run equivalence and SAT checks. Command-line batch only (no GUI)."
   },
-  "roots": ["yosys"],
-  "bin": ["yosys", "yosys-run"],
+  "roots": [
+    "yosys"
+  ],
+  "bin": [
+    "yosys",
+    "yosys-run"
+  ],
   "selftest": "yosys-run --selftest",
-  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "needs": {
+    "shizuku": false,
+    "display": false,
+    "gpu": false
+  },
   "category": "eda",
   "license": "ISC",
   "homepage": "https://yosyshq.net/yosys/",
-  "maintainers": ["greyoak111"],
+  "maintainers": [
+    "greyoak111"
+  ],
   "files": {
-    "usr/bin/yosys-run": { "src": "bin/yosys-run", "mode": "755" }
+    "usr/bin/yosys-run": {
+      "src": "bin/yosys-run",
+      "mode": "755"
+    }
   },
-  "notes": "yosys-run 存在的理由：本机的 yosys 走到 ABC 那一步会**永远卡住**（实测：yosys 把 ABC 脚本从管道喂过去后不关写端也不发 quit，ABC 停在 `abc 07> ` 提示符上互等；翻 /proc/<yosys>/fd 能看到它一直攥着那个写端 pipe），没有报错、没有超时、一个字都不说，而 `synth` 默认就会走到 ABC。包装脚本做两件事：给脚本里的 `abc` 自动补 `-exe <fifo 包装>`（转发脚本、看到哨兵 YOSYS_ABC_DONE 就补 quit，ABC 正常退出，且真做优化：4 位计数器的 $_AND_/$_XOR_ 变成 $_NAND_/$_XNOR_）；以及遇到不带 -noabc 的 `synth`（-p / -s / 位置脚本 / -S 四条路）当场拦住并说明两条出路，免得静悄悄卡死。selftest 跑综合 + stat + 写网表 + 走 ABC + 形式等价 + 验证守卫拦得住，约 0.5 秒。"
+  "notes": "yosys-run 存在的理由：本机的 yosys 走到 ABC 那一步会**永远卡住**（实测：yosys 把 ABC 脚本从管道喂过去后不关写端也不发 quit，ABC 停在 `abc 07> ` 提示符上互等；翻 /proc/<yosys>/fd 能看到它一直攥着那个写端 pipe），没有报错、没有超时、一个字都不说，而 `synth` 默认就会走到 ABC。包装脚本做两件事：给脚本里的 `abc` 自动补 `-exe <fifo 包装>`（转发脚本、看到哨兵 YOSYS_ABC_DONE 就补 quit，ABC 正常退出，且真做优化：4 位计数器的 $_AND_/$_XOR_ 变成 $_NAND_/$_XNOR_）；以及遇到不带 -noabc 的 `synth`（-p / -s / 位置脚本 / -S 四条路）当场拦住并说明两条出路，免得静悄悄卡死。selftest 跑综合 + stat + 写网表 + 走 ABC + 形式等价 + 验证守卫拦得住，约 0.5 秒。 r2：守卫按实测补齐 —— 逐个试了 20 条 synth/abc 命令：走裸 abc 的只有 synth（有 -noabc）、synth_easic（本机也没有它的 eTools 库）、synth_gatemate -luttree（加 -abc_new 就放行），这三条一律拦下；其余 17 条 synth_* 实测走 **ABC9 且不卡**（strace 确认 abc9 起了 1 个 yosys-abc 并正常回收），全部放行 —— 不搞「synth* 一律拦」，因为那会把能跑的流程逼回内置 LUT 映射。另有 -c（Tcl）支持拦下：tcl 里能随便调命令，按行扫不到。selftest 增加 synth_ice40 / abc9 / -luttree / -c 四条守卫测试。"
 }

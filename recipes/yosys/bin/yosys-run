@@ -22,8 +22,18 @@
 #      转发给真正的 yosys-abc，并在 yosys 的哨兵 YOSYS_ABC_DONE 之后补一个 `quit`，
 #      ABC 于是正常退出（实测 rc=0，而且 ABC 真会优化：4 位计数器从 $_AND_/$_XOR_
 #      变成 $_NAND_/$_XNOR_）。
-#   2. 脚本里出现不带 -noabc 的 `synth`（或命令行用了 -S / --synth）时**当场停下**，
-#      把上面的原因和两条出路讲清楚 —— 与其陪着一起卡死，不如立刻说清楚。
+#   2. 脚本里出现**会走裸 abc** 的命令时**当场停下**（与其陪着一起卡死，不如立刻说清楚）：
+#        · `synth` 不带 -noabc（`-S` / `--synth` 同理）；
+#        · `synth_easic`（映射用 `abc -liberty`；本机也没有它的 eTools 库文件）；
+#        · `synth_gatemate -luttree`（映射用 `abc -genlib`；加 -abc_new 就放行）；
+#        · `-c`（Tcl 脚本）：tcl 里能随便调命令，本脚本按行扫不到 —— 提示改用 .ys。
+#      **其余 synth_* 一律放行**：逐个实测过，它们走的是 **ABC9**，而 ABC9 不卡
+#      （synth_ice40 / ecp5 / gowin / xilinx / intel / intel_alm /
+#      anlogic / nexus / gatemate / quicklogic / efinix / fabulous / microchip /
+#      nanoxplore / sf2 / achronix / analogdevices 共 17 条，全都 rc=0；
+#      strace 里能看到 abc9 确实起了 1 个 yosys-abc 进程并正常回收）。
+#      只有`synth`/`synth_ice40` 有 -noabc，其中 synth_ice40 的 -noabc 是「不用 abc9、
+#      改用内置 LUT 映射」—— 它默认就不卡，硬要 -noabc 反而会把能跑的流程逼回内置映射。
 #   3. --selftest：综合一个 5 行的模块，核对 stat、写网表、走一遍 ABC、再做一次
 #      形式等价检查，顺带验证第 2 条真的挡得住。
 #
@@ -99,10 +109,56 @@ EOF
   exit 2
 }
 
+# ---------- 挡下 synth 家族里同样会卡死的两条路（其余的实测走 ABC9，不卡） ----------
+refuse_easic() {
+  echo "yosys-run: \`synth_easic\` 在本机会静悄悄卡死，先停下。$1" >&2
+  cat >&2 <<'EOF'
+
+为什么：synth_easic 的 LUT 映射那一步调的是**裸 abc**（`abc -liberty <lib>`），
+  和 `synth` 一样卡在本机的 ABC 管道问题上（`yosys-run --why` 有完整机制）。
+  它还要 eTools 的库文件（默认 $PREFIX/opt/eTools，本机没有），本来也跑不起来。
+
+怎么办：这条流程本机不支持，要跑请在别处跑。
+EOF
+  exit 2
+}
+
+refuse_gatemate() {
+  echo "yosys-run: \`synth_gatemate -luttree\` 在本机会静悄悄卡死，先停下。$1" >&2
+  cat >&2 <<'EOF'
+
+为什么：-luttree 那条映射路径用的是**裸 abc**（`abc -genlib …`，实测 rc=124 卡死），
+  不是 ABC9。不带 -luttree 的默认流程走 abc9，实测能正常跑完。
+
+怎么办（两条都实测过）：
+  · 加 -abc_new（等价开关）：映射改用 abc_new，实测 rc=0
+      yosys-run -p "read_verilog x.v; synth_gatemate -luttree -abc_new; stat"
+  · 或者不用 -luttree：默认映射走 abc9。
+EOF
+  exit 2
+}
+
+refuse_tcl() {
+  echo "yosys-run: 不支持 -c（Tcl 脚本），先停下。$1" >&2
+  cat >&2 <<'EOF'
+
+为什么：-c 里的 Tcl 什么都能调（`yosys synth` / `yosys abc` …），本脚本「按行扫脚本」的办法
+  扫不到它；而本机只要走到裸 abc 就会**静悄悄卡死**（见 `yosys-run --why`）。
+
+怎么办：把要跑的命令写成 .ys 脚本，用 -s 或位置参数交给 yosys-run —— 会被先检查再跑：
+    yosys-run -s flow.ys        # 或 yosys-run flow.ys
+  真要跑 Tcl：直接用 $PREFIX/bin/yosys -c …（绕过本脚本），但请自己保证里面不碰 synth/abc。
+EOF
+  exit 2
+}
+
 # ---------- 扫一遍脚本文本 ----------
 # 按 yosys 自己的分句规则切（换行、`;`），只看每句开头：
-#   synth 不带 -noabc   → 挡下（check / rewrite 两种模式都挡）
-#   abc …              → mode=rewrite 时补 -exe（已经有 -exe 就不动）
+#   synth 不带 -noabc            → 挡下（check / rewrite 两种模式都挡）
+#   synth_easic                  → 挡下（映射用裸 abc，本机必卡）
+#   synth_gatemate -luttree      → 挡下（同上；加 -abc_new 才放行）
+#   其余 synth_*                 → 放行：实测走 ABC9，17 条流程全部 rc=0（清单见 --why）
+#   abc …                        → mode=rewrite 时补 -exe（已经有 -exe 就不动）
 # mode=check 时不输出任何东西，只做检查（用来在改写之前先拦下来）。
 scan() {
   local text="$1" where="$2" mode="$3" line rest seg trimmed lead rebuilt
@@ -121,6 +177,15 @@ scan() {
             echo "yosys-run: 已把 abc 补成 abc -exe $abcfix_path（本机 ABC 不会自己退出，见 yosys-run --why）" >&2
             seg="$lead""abc -exe $abcfix_path${trimmed#abc}"
           fi
+          ;;
+        synth_easic|synth_easic[[:space:]]*)
+          refuse_easic "（位置：$where）"
+          ;;
+        synth_gatemate|synth_gatemate[[:space:]]*)
+          # 只有 -luttree 那条路走裸 abc（实测卡死）；-abc_new 是等价的替代
+          case "$trimmed" in
+            *-luttree*) [[ "$trimmed" == *"-abc_new"* ]] || refuse_gatemate "（位置：$where）" ;;
+          esac
           ;;
         synth|synth[[:space:]]*)
           [[ "$trimmed" == *"-noabc"* ]] || refuse_synth "（位置：$where）"
@@ -254,6 +319,40 @@ V
   rc=$?; [ $rc -eq 2 ] || { echo "  ✗ 位置脚本里的 synth 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
   [ $g_ok -eq 1 ] && echo "  ✓ -p / -S / 位置脚本 三条路都挡下了（rc=2）"
 
+  echo "· FPGA 流程（synth_ice40，走 ABC9）必须能跑完 —— 别被当成裸 abc 拦下"
+  timeout 180 "$SELF" -p "read_verilog $d/ctr.v; synth_ice40; stat" </dev/null > "$d/ice40.txt" 2>&1
+  rc=$?
+  if [ $rc -eq 124 ]; then
+    echo "  ✗ synth_ice40 卡住了（ABC9 不该卡，这是新情况）"; fail=1
+  elif [ $rc -ne 0 ] || ! grep -qE 'SB_LUT4|Number of cells' "$d/ice40.txt"; then
+    echo "  ✗ synth_ice40 跑失败（rc=$rc）"; tail -3 "$d/ice40.txt" | sed 's/^/    /'; fail=1
+  else
+    echo "  ✓ synth_ice40 跑通（abc9），stat 有单元"
+  fi
+
+  echo "· 显式 abc9 也要能跑完（它和裸 abc 不是一条路）"
+  timeout 180 "$SELF" -p "read_verilog $d/ctr.v; synth_ice40 -run begin:map_luts; abc9 -maxlut 4; stat" </dev/null > "$d/abc9.txt" 2>&1
+  rc=$?
+  if [ $rc -eq 124 ]; then
+    echo "  ✗ abc9 卡住了（不该卡）"; fail=1
+  elif [ $rc -ne 0 ]; then
+    echo "  ✗ abc9 跑失败（rc=$rc）"; tail -3 "$d/abc9.txt" | sed 's/^/    /'; fail=1
+  else
+    echo "  ✓ abc9 跑通（rc=0）"
+  fi
+
+  echo "· 会走裸 abc 的两条路必须挡下：synth_gatemate -luttree / -c（tcl）"
+  g_ok=1
+  "$SELF" -p "read_verilog $d/ctr.v; synth_gatemate -luttree; stat" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 2 ] || { echo "  ✗ -luttree 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
+  printf 'yosys -import\n' > "$d/t.tcl"
+  "$SELF" -c "$d/t.tcl" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 2 ] || { echo "  ✗ -c 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
+  # -abc_new 是 -luttree 的等价开关，必须放行（实测 rc=0）
+  timeout 180 "$SELF" -p "read_verilog $d/ctr.v; synth_gatemate -luttree -abc_new; stat" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 0 ] || { echo "  ✗ -luttree -abc_new 被挡了（rc=$rc，期望 0）"; g_ok=0; fail=1; }
+  [ $g_ok -eq 1 ] && echo "  ✓ 两条都挡下（rc=2），-abc_new 那条放行（rc=0）"
+
   echo "===== 总结 ===== $( [ $fail -eq 0 ] && echo '全部通过' || echo '有失败项' )"
   return $fail
 }
@@ -273,6 +372,23 @@ print_why() {
 两条出路（都实测过）：
   · 不需要外部工艺库 → 加 -noabc：照样出网表，stat / write_verilog / write_json 都正常。
   · 真要跑 ABC（有 .lib 工艺库）→ 先 synth -noabc，再单独 abc；yosys-run 会自动补 -exe。
+
+synth 家族逐个实测（Yosys 0.70，本机）：
+
+  会走裸 abc —— yosys-run 一律挡下：
+    synth                      没有 -noabc
+    synth_easic                映射用 abc -liberty（本机也没有它的库文件）
+    synth_gatemate -luttree    映射用 abc -genlib；加 -abc_new 改用 abc_new，实测 rc=0
+
+  走 ABC9 —— 实测不卡，直接放行（17 条全 rc=0）：
+    synth_ice40  synth_ecp5  synth_gowin  synth_xilinx  synth_intel  synth_intel_alm
+    synth_anlogic  synth_nexus  synth_gatemate(默认)  synth_quicklogic  synth_efinix
+    synth_fabulous  synth_microchip  synth_nanoxplore  synth_sf2  synth_achronix
+    synth_analogdevices
+  （strace 里 abc9 会起 1 个 yosys-abc 进程，并且能正常回收 —— 和裸 abc 的「喂完不给 quit」
+    不是一条路。synth_ice40 的 -noabc 是「不用 abc9、改用内置 LUT 映射」，不是保命开关。）
+
+  另外 `-c <tcl 脚本>` 不支持：tcl 里能随便调命令，按行扫不到，所以直接拒绝（改用 .ys）。
 EOF
 }
 
@@ -300,6 +416,10 @@ while [ $i -le $# ]; do
   case "$a" in
     -S|--synth)
       refuse_synth "（命令行用了 $a，它内部就是跑 synth）"
+      ;;
+    -c|-c*)
+      # Tcl 脚本里能随便调 yosys 命令，按行扫的办法扫不到，所以整条拒掉
+      refuse_tcl "（命令行用了 $a）"
       ;;
     -p|--commands)
       i=$((i + 1))
