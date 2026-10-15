@@ -1,0 +1,475 @@
+#!{{PREFIX}}/bin/python3
+# godot-templates — 装 Godot 的 Android 导出模板（cccodroid 的 godot 组件）
+#
+#   godot-templates              看状态 + 要下载什么（多大、从哪、怎么校验、装到哪）——不下载
+#   godot-templates download     下载并安装（**跑之前先问用户同不同意**，1.28 GB）
+#   godot-templates use <路径>   用本地已有的副本：给导出模板目录（里面有 android_debug.apk 等）
+#                                或官方 .tpz 文件。不下载、不校验 sha512（你自己拿来的）
+#   godot-templates --selftest   自检：用本地假 release 跑一遍下载→校验→安装→版本不符这几条路
+#
+# 为什么要它：Godot 的 Android 导出要有 android_debug.apk / android_release.apk 两个模板，
+# 官方只在 release 里发一个 1.28 GB 的 tpz（里面 35 个平台的模板），Android 那两个占 232 MB。
+# 组件里**不带**模板（太大，也不该替你下），所以做成这条命令，说明白再下。
+#
+# 校验：和 tpz 一起从同一个 release 取 SHA512-SUMS.txt，下完对 sha512 —— 不符就删掉文件并失败。
+# 只装 Android 需要的三个文件（两个 apk + version.txt），下完就把 1.28 GB 的 tpz 删掉。
+#
+# 版本要一致：模板版本取自 `godot --version` 去掉 Termux 打包加的 .termux 后缀（4.7.2.stable.termux
+# → 4.7.2.stable），和 tpz 里 version.txt 对不上就报错退出，不装。
+#
+# 退出码：0 成功；1 失败（含校验不过）；2 用法不对；3 前置条件不满足（没联网、空间不够…）
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import urllib.error
+import urllib.request
+import zipfile
+
+# 输出实时刷出来：Claude 的 Bash 工具和 `> log` 都是管道/文件，Python 默认块缓冲，
+# 1.28 GB 的下载会 20 分钟一个字都看不见（实测踩过）。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
+PROG = "godot-templates"
+# 官方 release（github.com/godotengine/godot）。自检/镜像可以设 GODOT_TEMPLATES_BASE 换掉 ——
+# 换了之后 SHA512-SUMS.txt 也跟着从那个 base 取，一定会在输出里打印出来。
+OFFICIAL_BASE = "https://github.com/godotengine/godot/releases/download"
+BASE = os.environ.get("GODOT_TEMPLATES_BASE", OFFICIAL_BASE).rstrip("/")
+
+PREFIX = os.environ.get("CCODROID_PREFIX") or os.environ.get("PREFIX") or ""
+if not PREFIX:
+    PREFIX = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+GODOT = os.path.join(PREFIX, "bin", "godot")
+
+WANT = ("templates/android_debug.apk", "templates/android_release.apk", "templates/version.txt")
+CHUNK = 1 << 20
+
+
+def die(msg, code=1):
+    sys.stderr.write(f"{PROG}: {msg}\n")
+    return code
+
+
+def home_dir():
+    return os.path.expanduser("~")
+
+
+def data_dir():
+    return os.environ.get("XDG_DATA_HOME") or os.path.join(home_dir(), ".local", "share")
+
+
+def tmpdir():
+    """临时目录：$TMPDIR 优先，退回组件前缀下的 tmp —— 安卓上全局的那个 tmp 应用没权限写"""
+    return os.environ.get("TMPDIR") or os.path.join(PREFIX, "tmp")
+
+
+tempfile.tempdir = tmpdir()
+
+
+def godot_version():
+    try:
+        r = subprocess.run([GODOT, "--headless", "--version"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    lines = [x.strip() for x in r.stdout.splitlines() if x.strip()]
+    return lines[-1] if lines else None
+
+
+def ver_base(ver):
+    """'4.7.2.stable.termux' → '4.7.2.stable'"""
+    return ver[: -len(".termux")] if ver.endswith(".termux") else ver
+
+
+def ver_tag(base):
+    """'4.7.2.stable' → '4.7.2-stable'；认不出来的返回 None"""
+    m = re.match(r"^(\d+(?:\.\d+)*)\.(stable|beta\d*|rc\d*|dev\d*|alpha\d*)$", base)
+    return f"{m.group(1)}-{m.group(2)}" if m else None
+
+
+def templates_dir(ver):
+    return os.path.join(data_dir(), "godot", "export_templates", ver_base(ver))
+
+
+def installed(ver):
+    d = templates_dir(ver)
+    files = ("android_debug.apk", "android_release.apk", "version.txt")
+    if not all(os.path.isfile(os.path.join(d, f)) for f in files):
+        return None
+    try:
+        vt = open(os.path.join(d, "version.txt")).read().strip()
+    except OSError:
+        return None
+    return vt
+
+
+def urls(ver):
+    base, tag = ver_base(ver), ver_tag(ver_base(ver))
+    if not tag:
+        return None
+    return (f"{BASE}/{tag}/Godot_v{tag}_export_templates.tpz",
+            f"{BASE}/{tag}/SHA512-SUMS.txt")
+
+
+def human(n):
+    """十进制单位（1.28 GB 这种说法就是十进制的；1,281,349,702 字节 → 1.28 GB）"""
+    return f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB"
+
+
+def http_get(url, timeout=60):
+    req = urllib.request.Request(url, headers={"User-Agent": "cccodroid-godot-templates"})
+    return urllib.request.urlopen(req, timeout=timeout)      # noqa: S310（https，官方/自测本地）
+
+
+def head_size(url):
+    try:
+        with http_get(url) as r:                            # GET 但只读头就关掉
+            n = r.headers.get("Content-Length")
+            return int(n) if n else None
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def fetch_sums(sums_url):
+    """→ {文件名: sha512 小写}"""
+    with http_get(sums_url) as r:
+        text = r.read().decode("utf-8", "replace")
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and len(parts[0]) == 128:
+            out[parts[-1].lstrip("*")] = parts[0].lower()
+    if not out:
+        raise RuntimeError(f"{sums_url} 里没解析出 sha512（格式变了？）")
+    return out
+
+
+def sha512_of(path, progress=None):
+    h = hashlib.sha512()
+    done = 0
+    with open(path, "rb") as fh:
+        while True:
+            b = fh.read(CHUNK)
+            if not b:
+                break
+            h.update(b)
+            done += len(b)
+            if progress:
+                progress(done)
+    return h.hexdigest()
+
+
+def download(url, dst, expect=None):
+    """下到 dst，顺便算 sha512。→ (sha512, 字节数)"""
+    h = hashlib.sha512()
+    got = 0
+    total = head_size(url)
+    print(f"  下载 {url}")
+    if total:
+        print(f"  {human(total)}（{total} 字节）")
+    last = 0
+    with http_get(url) as r, open(dst, "wb") as fh:
+        while True:
+            b = r.read(CHUNK)
+            if not b:
+                break
+            fh.write(b)
+            h.update(b)
+            got += len(b)
+            if got - last >= 25 * CHUNK:
+                last = got
+                pct = f" ({got * 100 // total}%)" if total else ""
+                print(f"    … {human(got)}{pct}", flush=True)
+    print(f"  下完：{human(got)}")
+    if expect and got != expect:
+        raise RuntimeError(f"下载的大小不对：{got} 字节，SHA512-SUMS.txt 说 {expect}")
+    return h.hexdigest(), got
+
+
+def install_from_tpz(tpz, ver, expect_vt=None):
+    """从 tpz 里只取 Android 那三个文件，装到 export_templates/<版本>/。→ 装了哪些文件"""
+    d = templates_dir(ver)
+    tmp = d + ".part"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
+    try:
+        with zipfile.ZipFile(tpz) as z:
+            names = set(z.namelist())
+            miss = [w for w in WANT if w not in names]
+            if miss:
+                raise RuntimeError(f"tpz 里没有 {', '.join(miss)}（上游结构变了？）")
+            for w in WANT:
+                with z.open(w) as src, open(os.path.join(tmp, os.path.basename(w)), "wb") as dst:
+                    shutil.copyfileobj(src, dst, CHUNK)
+        vt = open(os.path.join(tmp, "version.txt")).read().strip()
+        if vt != expect_vt:
+            raise RuntimeError(f"模板版本对不上：tpz 里是 {vt!r}，godot 是 {expect_vt!r}")
+        for f in os.listdir(tmp):
+            os.chmod(os.path.join(tmp, f), 0o644)
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(os.path.dirname(d), exist_ok=True)
+        os.rename(tmp, d)
+        return [os.path.join(d, f) for f in sorted(os.listdir(d))]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cmd_status(ver):
+    want = ver_base(ver)
+    d = templates_dir(ver)
+    print(f"godot：{ver}")
+    print(f"模板版本：{want}（= godot --version 去掉 .termux 后缀）")
+    print(f"模板目录：{d}")
+    cur = installed(ver)
+    if cur:
+        n = sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d))
+        print(f"状态：**已装**（version.txt 写的是 {cur}，共 {human(n)}）")
+        print("  想重下就加 --force：godot-templates download --force")
+        return 0
+    print("状态：**没装** —— Android 导出（--export-debug/--export-release）会失败")
+    u = urls(ver)
+    if not u:
+        print(f"  上游地址算不出来：这个版本号（{want}）不是 数字.数字…[.stable|betaN|rcN|devN] 的样子，")
+        print("  多半是自编译版本，没有官方导出模板。用 godot-templates use <路径> 指你自己的副本。")
+        return 3
+    tpz_url, sums_url = u
+    size = head_size(tpz_url)
+    print("要下载的东西：")
+    print(f"  · {tpz_url}")
+    print(f"    官方导出模板包（35 个平台的全在里面）" + (f"，{human(size)}（{size} 字节）" if size else "，大小没查到（没联网？）"))
+    print(f"  · {sums_url}（SHA512-SUMS.txt，用它核对上面那个包的 sha512）")
+    print("只装其中 Android 的三个文件（android_debug.apk + android_release.apk + version.txt，")
+    print("约 232 MB），装完把 1.28 GB 的 tpz 删掉。临时文件放 $TMPDIR。")
+    if size:
+        free = shutil.disk_usage(os.environ.get("TMPDIR") or "/data").free
+        print(f"  $TMPDIR 所在分区剩 {human(free)}" + ("（不够，先腾地方）" if free < size * 1.1 else ""))
+    print("**先问用户同不同意**，同意后运行：godot-templates download")
+    print("本机已经有副本的话（比如从别处拷来的 templates/4.7.2.stable 目录）：godot-templates use <路径>")
+    return 0
+
+
+def cmd_download(ver, force=False):
+    if installed(ver) and not force:
+        return die(f"已经装好了（{templates_dir(ver)}）；要重下加 --force", 2)
+    u = urls(ver)
+    if not u:
+        return die(f"算不出上游地址（版本 {ver_base(ver)} 不是官方发布的样子），用 godot-templates use <路径>", 3)
+    tpz_url, sums_url = u
+    tmp = os.path.join(tmpdir(), f"godot-templates.{os.getpid()}")
+    os.makedirs(tmp, exist_ok=True)
+    tpz = os.path.join(tmp, os.path.basename(tpz_url))
+    try:
+        print(f"· 取校验清单：{sums_url}")
+        try:
+            sums = fetch_sums(sums_url)
+        except Exception as e:                               # noqa: BLE001
+            return die(f"取 SHA512-SUMS.txt 失败：{e}", 3)
+        name = os.path.basename(tpz_url)
+        if name not in sums:
+            return die(f"SHA512-SUMS.txt 里没有 {name} —— 上游改结构了？先别下，看看 release 页面", 1)
+        expect = sums[name]
+        print(f"  ✓ 清单里有它，sha512 = {expect[:16]}…")
+        need = head_size(tpz_url) or 0
+        free = shutil.disk_usage(tmp).free
+        if need and free < need * 1.1:
+            return die(f"空间不够：要 {human(need)}，$TMPDIR 只有 {human(free)}", 3)
+        print("· 下 tpz（1.28 GB，慢慢来）")
+        got_sha, nbytes = download(tpz_url, tpz, expect=need or None)
+        print("· 核对 sha512")
+        if got_sha != expect:
+            os.unlink(tpz)
+            return die(f"sha512 对不上！已把下载的文件删掉，没装任何东西。\n"
+                       f"  期望（来自 {sums_url}）：{expect}\n  实际：{got_sha}\n"
+                       "  可能是下载坏了、或者中间被换了。重试一次；还这样就别装，去 release 页面看看。", 1)
+        print(f"  ✓ 和 {sums_url} 一致")
+        print("· 解出 Android 的三个文件并装上")
+        files = install_from_tpz(tpz, ver, expect_vt=ver_base(ver))
+        for f in files:
+            print(f"  {f}  {human(os.path.getsize(f)) if os.path.getsize(f) else '0'}")
+    except Exception as e:                                   # noqa: BLE001
+        return die(str(e), 1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("· 临时文件已删（tpz 没有留下来）")
+    print("装好了。试试：godot-run --headless --path <你的工程> --export-debug \"Android\" out.apk")
+    return 0
+
+
+def cmd_use(ver, path):
+    if not os.path.exists(path):
+        return die(f"没有这个路径：{path}", 2)
+    if os.path.isdir(path):
+        src = path
+        miss = [f for f in ("android_debug.apk", "android_release.apk") if not os.path.isfile(os.path.join(src, f))]
+        if miss:
+            return die(f"{path} 里没有 {', '.join(miss)}（要官方导出模板目录里那两个 apk）", 2)
+        d = templates_dir(ver)
+        os.makedirs(d, exist_ok=True)
+        for f in ("android_debug.apk", "android_release.apk"):
+            shutil.copy2(os.path.join(src, f), os.path.join(d, f))
+        vt_f = os.path.join(src, "version.txt")
+        if os.path.isfile(vt_f):
+            vt = open(vt_f).read().strip()
+            if vt != ver_base(ver):
+                shutil.rmtree(d, ignore_errors=True)
+                return die(f"版本对不上：{path}/version.txt 是 {vt!r}，godot 是 {ver_base(ver)!r}。"
+                           "版本不同的模板导出出来的东西可能跑不起来，所以不装。", 1)
+            shutil.copy2(vt_f, os.path.join(d, "version.txt"))
+        else:
+            print(f"⚠ {path} 里没有 version.txt，按 {ver_base(ver)} 记（这份副本没经过校验，你自己确认过来源）")
+            open(os.path.join(d, "version.txt"), "w").write(ver_base(ver) + "\n")
+        print(f"✓ 装了：{d}（从本地副本 {path} 拷的，**没有核对 sha512**）")
+        return 0
+    if zipfile.is_zipfile(path):
+        try:
+            files = install_from_tpz(path, ver, expect_vt=ver_base(ver))
+        except Exception as e:                               # noqa: BLE001
+            return die(str(e), 1)
+        print(f"✓ 从 {path} 装了 {len(files)} 个文件（**没有核对 sha512**）")
+        return 0
+    return die(f"{path} 既不是目录也不是 tpz（zip）", 2)
+
+
+# ---------- 自检：本地假 release，把下载/校验/安装/版本不符几条路都走一遍 ----------
+def selftest():
+    import http.server
+    import time
+
+    tmp = tempfile.mkdtemp(prefix="godot-templates-selftest.")
+    fail = 0
+    srv = None
+    try:
+        ver = godot_version()
+        if not ver:
+            print("✗ godot 跑不起来"); return 1
+        base = ver_base(ver)
+        tag = ver_tag(base) or "9.9-test"
+        payload = {base: b"fake-debug-apk" * 100, "rel": b"fake-release-apk" * 100}
+        # 假 release 目录：<base>/<tag>/ 下放 tpz 和 SHA512-SUMS.txt
+        rel = os.path.join(tmp, "www", tag)
+        os.makedirs(rel)
+        tpz_name = f"Godot_v{tag}_export_templates.tpz"
+        tpz = os.path.join(rel, tpz_name)
+        with zipfile.ZipFile(tpz, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("templates/android_debug.apk", payload[base])
+            z.writestr("templates/android_release.apk", payload["rel"])
+            z.writestr(f"templates/version.txt", base + "\n")
+            z.writestr("templates/linux_x86_64", b"x" * 4096)   # 不该被解出来的陪衬
+        good = hashlib.sha512(open(tpz, "rb").read()).hexdigest()
+        sums = os.path.join(rel, "SHA512-SUMS.txt")
+        open(sums, "w").write(f"{good}  {tpz_name}\n{'0' * 128}  别的文件\n")
+
+        class H(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *a):                       # 安静
+                pass
+
+        os.chdir(os.path.join(tmp, "www"))
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        port = srv.server_address[1]
+
+        # 先建一个"最终要装进去"的假 HOME/数据目录，避免碰用户真目录
+        os.environ["XDG_DATA_HOME"] = os.path.join(tmp, "data")
+        global BASE
+        BASE = f"http://127.0.0.1:{port}"
+        print(f"· 本地假 release：{BASE}/{tag}/（只给自检用，不联网）")
+
+        print("· download：下载 → sha512 核对 → 只解 Android 三个文件 → 删临时文件")
+        rc = cmd_download(ver, force=True)
+        d = templates_dir(ver)
+        got = {f: open(os.path.join(d, f), "rb").read() for f in sorted(os.listdir(d))}
+        if rc == 0 and got.get("android_debug.apk") == payload[base] and got.get("android_release.apk") == payload["rel"]:
+            print("  ✓ 两个 apk 的内容和假 release 里一致")
+        else:
+            print("  ✗ 装出来的东西不对"); fail = 1
+        if "linux_x86_64" not in got and open(os.path.join(d, "version.txt")).read().strip() == base:
+            print("  ✓ 只装了 Android 那三个（别的平台的没解出来），version.txt 对")
+        else:
+            print("  ✗ 多装了东西或 version.txt 不对"); fail = 1
+
+        print("· sha512 对不上：必须删掉文件、一个都不装")
+        shutil.rmtree(d, ignore_errors=True)
+        open(sums, "w").write(f"{'f' * 128}  {tpz_name}\n")   # 清单改成错的
+        rc = cmd_download(ver, force=True)
+        tdir = tmpdir()
+        leftovers = [p for p in os.listdir(tdir) if p.startswith("godot-templates.")] if os.path.isdir(tdir) else []
+        if rc != 0 and not os.path.isdir(d) and not leftovers:
+            print("  ✓ 返回非 0、没装东西、临时文件也删了")
+        else:
+            print(f"  ✗ 没挡住（rc={rc}，装了没：{os.path.isdir(d)}，残留：{leftovers}）"); fail = 1
+
+        print("· 模板版本和 godot 对不上：报错、不装")
+        open(sums, "w").write(f"{good}  {tpz_name}\n")
+        bad = os.path.join(rel, "bad.tpz")
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("templates/android_debug.apk", b"x")
+            z.writestr("templates/android_release.apk", b"x")
+            z.writestr("templates/version.txt", "9.9.9.stable\n")
+        rc = cmd_use(ver, bad)
+        if rc != 0 and not os.path.isdir(d):
+            print("  ✓ 拦下了（版本不一致不装）")
+        else:
+            print(f"  ✗ 没拦下（rc={rc}）"); fail = 1
+
+        print("· use <目录>：本地副本能装上，version.txt 不符要报错")
+        srcdir = os.path.join(tmp, "src"); os.makedirs(srcdir)
+        open(os.path.join(srcdir, "android_debug.apk"), "wb").write(b"d")
+        open(os.path.join(srcdir, "android_release.apk"), "wb").write(b"r")
+        open(os.path.join(srcdir, "version.txt"), "w").write(base + "\n")
+        rc = cmd_use(ver, srcdir)
+        if rc == 0 and installed(ver) == base:
+            print("  ✓ 装上了")
+        else:
+            print(f"  ✗ 没装上（rc={rc}）"); fail = 1
+        open(os.path.join(srcdir, "version.txt"), "w").write("8.8.8.stable\n")
+        rc = cmd_use(ver, srcdir)
+        if rc != 0 and not os.path.isdir(d):
+            print("  ✓ 版本不符时没装，而且把已装的也清掉了")
+        else:
+            print(f"  ✗ 没挡住（rc={rc}）"); fail = 1
+
+        print("===== 总结 ===== " + ("全部通过" if not fail else "有失败项"))
+        return fail
+    finally:
+        if srv:
+            srv.shutdown()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main(argv):
+    if argv and argv[0] == "--selftest":
+        return selftest()
+    if argv and argv[0] in ("--help", "-h"):
+        print(__doc__.strip())
+        return 0
+    if not os.path.isfile(GODOT):
+        return die(f"找不到 {GODOT}（组件没装好？）", 3)
+    ver = godot_version()
+    if not ver:
+        return die("godot 跑不起来（--headless --version 失败）", 3)
+    if not argv:
+        return cmd_status(ver)
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "download":
+        return cmd_download(ver, force=("--force" in rest))
+    if cmd == "use":
+        if not rest:
+            return die("用法：godot-templates use <目录或 .tpz>", 2)
+        return cmd_use(ver, rest[0])
+    return die(f"不认识：{cmd}（godot-templates / download / use <路径>）", 2)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

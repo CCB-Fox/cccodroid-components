@@ -1,0 +1,487 @@
+#!{{PREFIX}}/bin/python3
+# godot-run — 跑 Godot（cccodroid 的 godot 组件）
+#
+#   godot-run <godot 自己的参数…>       原样转发给 godot；参数里有 --export… 时先自动准备好导出环境
+#   godot-run --prepare                 只准备 Android 导出环境（SDK 垫片 + 编辑器设置 + debug keystore）
+#   godot-run --selftest                自检（不改用户的文件）
+#   godot-run --help                    这个说明
+#
+# 为什么要包装：
+#   · Godot 的 Android 导出要一个 Android SDK。本机没有、也不该让用户去装一个（几百 MB、
+#     还要 Java）。实测**非 gradle 导出**只要三样东西就够了：一个假 adb、一个包着
+#     $PREFIX/bin/apksigner 的垫片、一个 0 字节的 android.jar（真 jar 27 MB，而且导出路径
+#     只检查它在不在）。这三样放在组件自己的目录里（$PREFIX/share/cccodroid/components/godot/），
+#     不往 $HOME 里撒。
+#   · 编辑器设置里那三个键（android_sdk_path / java_sdk_path / debug_keystore）不写对，导出会
+#     以一句没头没尾的话失败。--prepare 会把它们补上，**只补缺的**：文件不存在就新建，
+#     已存在的键（包括用户自己设的）一个都不动。
+#   · debug keystore 现场用 keytool 生成（app 里自带 keytool，2 KB）。**这是调试密钥**，
+#     正式发布要用用户自己的密钥（见 SKILL.md）。
+#   · 导出模板没装时，godot 自己报的话很难懂（"No export template found at …"）。这里提前
+#     拦下并说清楚：模板要用 godot-templates 装，**装之前先问用户**（官方 tpz 1.28 GB）。
+#
+# 退出码：godot 自己的退出码原样返回；本脚本自己的用法错/前置条件不满足 = 2/3。
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+# 输出实时刷出来：Claude 的 Bash 工具和 `> log` 都是管道/文件，Python 默认块缓冲，
+# 1.28 GB 的下载会 20 分钟一个字都看不见（实测踩过）。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
+PROG = "godot-run"
+
+PREFIX = os.environ.get("CCODROID_PREFIX") or os.environ.get("PREFIX") or ""
+if not PREFIX:
+    PREFIX = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+GODOT = os.path.join(PREFIX, "bin", "godot")
+KEYTOOL = os.path.join(PREFIX, "bin", "keytool")
+COMP_DIR = os.path.join(PREFIX, "share", "cccodroid", "components", "godot")
+SDK_DIR = os.path.join(COMP_DIR, "android-sdk")
+BUILD_TOOLS_VER = "35.0.0"          # 垫片的 build-tools 目录名（Godot 只认目录里有 apksigner）
+PLATFORM_VER = "android-35"         # 垫片的 platforms 目录名（只检查 android.jar 在不在）
+
+
+def die(msg, code=2):
+    sys.stderr.write(f"{PROG}: {msg}\n")
+    return code
+
+
+def home_dir():
+    return os.path.expanduser("~")
+
+
+def tmpdir():
+    """临时目录：$TMPDIR 优先，退回组件前缀下的 tmp —— 安卓上全局的那个 tmp 应用没权限写"""
+    return os.environ.get("TMPDIR") or os.path.join(PREFIX, "tmp")
+
+
+tempfile.tempdir = tmpdir()
+
+
+def config_home(home=None):
+    if home:
+        return os.path.join(home, ".config")
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(home_dir(), ".config")
+
+
+def data_home(home=None):
+    if home:
+        return os.path.join(home, ".local", "share")
+    return os.environ.get("XDG_DATA_HOME") or os.path.join(home_dir(), ".local", "share")
+
+
+def godot_version():
+    """→ '4.7.2.stable.termux'（读不到就返回 None）"""
+    try:
+        r = subprocess.run([GODOT, "--headless", "--version"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    lines = [x.strip() for x in r.stdout.splitlines() if x.strip()]
+    return lines[-1] if lines else None
+
+
+def templates_version(ver):
+    """'4.7.2.stable.termux' → '4.7.2.stable'（Termux 打包时加的后缀，上游没有）"""
+    return ver[: -len(".termux")] if ver.endswith(".termux") else ver
+
+
+def editor_settings_path(ver, home=None):
+    """Godot 的编辑器设置文件：$XDG_CONFIG_HOME/godot/editor_settings-<主>.<次>.tres"""
+    major_minor = ".".join(ver.split(".")[:2])
+    return os.path.join(config_home(home), "godot", f"editor_settings-{major_minor}.tres")
+
+
+def keystore_path(home=None):
+    return os.path.join(data_home(home), "godot", "keystores", "debug.keystore")
+
+
+def templates_dir(ver, home=None):
+    return os.path.join(data_home(home), "godot", "export_templates", templates_version(ver))
+
+
+def templates_ok(ver):
+    d = templates_dir(ver)
+    return all(os.path.isfile(os.path.join(d, f)) for f in ("android_debug.apk", "android_release.apk"))
+
+
+# ---------- SDK 垫片 ----------
+ADB_STUB = """#!/bin/sh
+# 空壳 adb：无头导出（非 gradle）用不到真正的 adb，Godot 只是要这个路径在。
+# 本组件不带 adb；要连着手机调试，得自己弄一份真的 platform-tools。
+echo "godot-run: 这是空壳 adb（无头导出用不到它）。" >&2
+exit 1
+"""
+
+APKSIGNER_STUB = """#!/bin/sh
+# 把 Godot 要的 apksigner 指到 Termux 包里的那个（$PREFIX/bin/apksigner，Java 写的，要 java）。
+exec "{{PREFIX}}/bin/apksigner" "$@"
+"""
+
+
+def make_shims(sdk_dir):
+    """建（或补齐）SDK 垫片，返回新写的文件列表"""
+    written = []
+    for rel, content, mode in (
+        (os.path.join("platform-tools", "adb"), ADB_STUB, 0o755),
+        (os.path.join("build-tools", BUILD_TOOLS_VER, "apksigner"), APKSIGNER_STUB, 0o755),
+        (os.path.join("platforms", PLATFORM_VER, "android.jar"), "", 0o644),   # 0 字节就够（实测）
+    ):
+        p = os.path.join(sdk_dir, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.isfile(p):
+            continue
+        with open(p, "w") as fh:
+            fh.write(content)
+        os.chmod(p, mode)
+        written.append(rel)
+    # Godot 会读 platforms/<最高版本>/，多备一个软链式的同内容文件没意义，就这一个。
+    return written
+
+
+# ---------- 编辑器设置 ----------
+def settings_keys(sdk_dir, home=None):
+    return {
+        "export/android/android_sdk_path": sdk_dir,
+        "export/android/java_sdk_path": PREFIX,
+        "export/android/debug_keystore": keystore_path(home),
+    }
+
+
+def merge_settings(path, keys):
+    """只补缺的键。→ (added, kept, changed)
+    文件不存在：新建（只有这三行）。存在：找到 `key = …` 就比对，值非空就不动；缺的插进 [resource] 段。"""
+    added, kept = [], []
+    if not os.path.isfile(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write('[gd_resource type="EditorSettings" format=3]\n\n[resource]\n')
+            for k, v in keys.items():
+                fh.write(f'{k} = "{v}"\n')
+        return list(keys), [], []
+
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    have, missing = {}, []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if "=" not in s or s.startswith(("[", ";")):
+            continue
+        k, _, v = s.partition("=")
+        k, v = k.strip(), v.strip()
+        if k in keys:
+            have[k] = (i, v)
+    for k in keys:
+        if k not in have:
+            missing.append(k)
+        elif have[k][1] in ('""', ""):
+            missing.append(k)          # 空值等于没设，可以补
+        else:
+            kept.append((k, have[k][1]))
+
+    changed = []
+    for k, (i, v) in have.items():
+        if k in missing:
+            lines[i] = f'{k} = "{keys[k]}"'
+            changed.append(k)
+    if missing:
+        ins = next((i for i, l in enumerate(lines) if l.strip() == "[resource]"), None)
+        block = [f'{k} = "{keys[k]}"' for k in missing if k not in changed]
+        if ins is None:
+            lines += [""] + block
+        else:
+            lines[ins + 1:ins + 1] = block
+        added = [k for k in missing if k not in changed]
+    if added or changed:
+        with open(path, "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+    return added, kept, changed
+
+
+def make_keystore(path):
+    """没有才生成（调试密钥；正式发布要用用户自己的）。→ 是否新生成"""
+    if os.path.isfile(path):
+        return False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    cmd = [KEYTOOL, "-genkeypair", "-keyalg", "RSA", "-keysize", "2048",
+           "-validity", "10000", "-alias", "androiddebugkey",
+           "-keystore", path, "-storepass", "android", "-keypass", "android",
+           "-dname", "CN=Android Debug,O=Android,C=US", "-deststoretype", "pkcs12"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"keytool 生成 debug keystore 失败（rc={r.returncode}）：{r.stderr.strip()[:400]}")
+    os.chmod(path, 0o600)
+    return True
+
+
+def prepare(out=sys.stdout, sdk_dir=None, home=None):
+    """准备 Android 导出环境。home 只给自检用（把编辑器设置写进临时目录，别碰用户真目录）。"""
+    ver = godot_version()
+    if not ver:
+        raise RuntimeError(f"跑不了 {GODOT}：--headless --version 没成功")
+    sdk_dir = sdk_dir or SDK_DIR
+    written = make_shims(sdk_dir)
+    print(f"· SDK 垫片：{sdk_dir}", file=out)
+    print("  " + ("新写 " + "、".join(written) if written else "已经齐了（没动）"), file=out)
+
+    spath = editor_settings_path(ver, home)
+    added, kept, changed = merge_settings(spath, settings_keys(sdk_dir, home))
+    print(f"· 编辑器设置：{spath}", file=out)
+    for k in added:
+        print(f"  补上 {k}", file=out)
+    for k in changed:
+        print(f"  空值改成我们这边的：{k}", file=out)
+    for k, v in kept:
+        print(f"  已有、没动：{k} = {v}", file=out)
+    if not (added or changed or kept):
+        print("  没动（都已经是对的）", file=out)
+
+    # keytool / apksigner / java 由 cccodroid 的工具包提供（不在本组件的包里）。
+    # 缺了就说清楚，别让导出死在 godot 自己那句难懂的话上。
+    for tool in ("keytool", "java", "apksigner"):
+        if not os.path.isfile(os.path.join(PREFIX, "bin", tool)):
+            print(f"  ⚠ {PREFIX}/bin/{tool} 不在 —— 它是 cccodroid 工具包（底座）自带的，"
+                  "没有它导不了带签名的 APK。更新/重装工具包试试。", file=out)
+
+    ks = keystore_path(home)
+    made = make_keystore(ks)
+    print(f"· debug keystore：{ks} —— " + ("新生成（调试用；发布要换成你自己的密钥）" if made else "已经有了（没动）"), file=out)
+    return ver
+
+
+# ---------- 自检 ----------
+MIN_PROJECT = """config_version=5
+
+[application]
+
+config/name="cccodroid-godot-selftest"
+run/main_scene="res://main.tscn"
+"""
+
+MIN_SCENE = """[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1")
+"""
+
+MIN_SCRIPT = """extends Node
+
+func _ready():
+\tprint("CCCODROID-GODOT-SELFTEST-OK")
+\tget_tree().quit()
+"""
+
+
+def run_godot(args, cwd=None, env=None, timeout=180):
+    return subprocess.run([GODOT] + args, cwd=cwd, env=env,
+                          capture_output=True, text=True, timeout=timeout)
+
+
+def selftest():
+    tmp = tempfile.mkdtemp(prefix="godot-run-selftest.")
+    fail = 0
+    try:
+        print("· godot --headless --version")
+        ver = godot_version()
+        if not ver:
+            print("  ✗ 跑不起来"); return 1
+        print(f"  ✓ {ver}")
+        if ".termux" not in ver:
+            print(f"  ⚠ 版本里没有 .termux 后缀（{ver}）—— 不是 Termux 包的构建？")
+
+        proj = os.path.join(tmp, "proj")
+        os.makedirs(proj)
+        open(os.path.join(proj, "project.godot"), "w").write(MIN_PROJECT)
+        open(os.path.join(proj, "main.tscn"), "w").write(MIN_SCENE)
+        open(os.path.join(proj, "main.gd"), "w").write(MIN_SCRIPT)
+        # 一路都在临时 HOME 里跑：不碰用户真目录（XDG_* 必须显式覆盖，不然会被外面的值带走）
+        fake_home = os.path.join(tmp, "home")
+        os.makedirs(fake_home, exist_ok=True)
+        env = dict(os.environ, HOME=fake_home,
+                   XDG_CONFIG_HOME=os.path.join(fake_home, ".config"),
+                   XDG_DATA_HOME=os.path.join(fake_home, ".local", "share"))
+
+        print("· 最小工程 --headless --quit（主场景要真的跑到 _ready）")
+        r = run_godot(["--headless", "--path", proj, "--quit"], env=env)
+        if r.returncode == 0 and "CCCODROID-GODOT-SELFTEST-OK" in r.stdout:
+            print("  ✓ rc=0，主场景的 _ready 打印出来了")
+        else:
+            print(f"  ✗ rc={r.returncode}，没看到主场景的输出")
+            print("    " + (r.stdout + r.stderr).strip()[:300].replace("\n", "\n    ")); fail = 1
+
+        print("· --headless --import（导入资源）")
+        r = run_godot(["--headless", "--path", proj, "--import"], env=env)
+        dot_godot = os.path.join(proj, ".godot")
+        if r.returncode == 0 and os.path.isdir(dot_godot):
+            n = sum(len(f) for _, _, f in os.walk(dot_godot))
+            print(f"  ✓ rc=0，.godot/ 里生成了 {n} 个文件")
+        else:
+            print(f"  ✗ rc={r.returncode}，.godot 在不在：{os.path.isdir(dot_godot)}")
+            print("    " + (r.stdout + r.stderr).strip()[:300].replace("\n", "\n    ")); fail = 1
+
+        print("· 准备导出环境（写进临时 HOME，不碰你现在的设置）")
+        fake_home = os.path.join(tmp, "fakehome")
+        os.makedirs(fake_home, exist_ok=True)
+        fake_env = dict(os.environ, HOME=fake_home,
+                        XDG_CONFIG_HOME=os.path.join(fake_home, ".config"),
+                        XDG_DATA_HOME=os.path.join(fake_home, ".local", "share"))
+        # 先造一份"用户自己已有别的设置"的文件，验证我们只补缺的键、不动别人的
+        sdir = os.path.join(fake_home, ".config", "godot")
+        os.makedirs(sdir, exist_ok=True)
+        sfile = os.path.join(sdir, f"editor_settings-{'.'.join(ver.split('.')[:2])}.tres")
+        open(sfile, "w").write('[gd_resource type="EditorSettings" format=3]\n\n[resource]\n'
+                               'interface/editor/display_scale = 1\n'
+                               'export/android/debug_keystore = "/home/有人自己设的.keystore"\n')
+        try:
+            prepare(out=open(os.devnull, "w"), sdk_dir=os.path.join(tmp, "sdk"), home=fake_home)
+        except Exception as e:                                   # noqa: BLE001
+            print(f"  ✗ 准备失败：{e}"); return 1
+        body = open(sfile).read()
+        ok = True
+        for must in ("interface/editor/display_scale = 1", "/home/有人自己设的.keystore"):
+            if must not in body:
+                print(f"  ✗ 把用户自己的设置改掉了：少了 {must}"); ok = False; fail = 1
+        if "android_sdk_path" not in body or "java_sdk_path" not in body:
+            print("  ✗ 该补的键没补上"); ok = False; fail = 1
+        for rel in (os.path.join("platform-tools", "adb"),
+                    os.path.join("build-tools", BUILD_TOOLS_VER, "apksigner"),
+                    os.path.join("platforms", PLATFORM_VER, "android.jar")):
+            if not os.path.exists(os.path.join(tmp, "sdk", rel)):
+                print(f"  ✗ 垫片没建：{rel}"); ok = False; fail = 1
+        if not os.path.isfile(os.path.join(fake_home, ".local", "share", "godot", "keystores", "debug.keystore")):
+            print("  ✗ debug keystore 没生成"); ok = False; fail = 1
+        if ok:
+            print("  ✓ 垫片 3 个文件都在、三个键都补上（用户自己的键没动）、debug keystore 生成了")
+
+        print("· 导出 APK（要模板）")
+        if not templates_ok(ver):
+            print("  跳过（模板没装）—— 装模板：先问用户同不同意下官方 tpz（1.28 GB），"
+                  "同意后 godot-templates download")
+        else:
+            # 模板在真 HOME 里（godot-templates 装在那），软链进临时 HOME：导出时读得到，
+            # 但 Godot 要写的缓存还是落在临时 HOME 里，不脏用户的目录。
+            tlink = os.path.join(fake_env["XDG_DATA_HOME"], "godot", "export_templates", templates_version(ver))
+            os.makedirs(os.path.dirname(tlink), exist_ok=True)
+            if not os.path.lexists(tlink):
+                os.symlink(templates_dir(ver), tlink)
+            open(os.path.join(proj, "export_presets.cfg"), "w").write(EXPORT_PRESET)
+            out_apk = os.path.join(tmp, "out.apk")
+            r = run_godot(["--headless", "--path", proj, "--export-debug", "Android", out_apk],
+                          env=fake_env, timeout=900)
+            ok = r.returncode == 0 and os.path.isfile(out_apk)
+            if ok:
+                import zipfile
+                with zipfile.ZipFile(out_apk) as z:
+                    names = set(z.namelist())
+                for must in ("AndroidManifest.xml", "assets/project.binary"):
+                    if must not in names:
+                        print(f"  ✗ 导出的 APK 里没有 {must} —— 工程没打进去"); ok = False; fail = 1
+                # 签过名才算能用（用我们生成的 debug keystore）
+                apksigner = os.path.join(PREFIX, "bin", "apksigner")
+                if ok and os.path.isfile(apksigner):
+                    v = subprocess.run([apksigner, "verify", "--print-certs", out_apk],
+                                       capture_output=True, text=True, timeout=600)
+                    if v.returncode == 0 and "CN=Android Debug" in v.stdout:
+                        print("  ✓ apksigner verify 过了（签名 CN=Android Debug —— 就是 --prepare 生成的那个调试密钥）")
+                    else:
+                        print(f"  ✗ 签名验证不过（rc={v.returncode}）"); ok = False; fail = 1
+                if ok:
+                    print(f"  ✓ 导出成功：{out_apk} {os.path.getsize(out_apk) / 1e6:.1f} MB，"
+                          "里面有 AndroidManifest.xml 和工程数据")
+            else:
+                print(f"  ✗ 导出失败（rc={r.returncode}）")
+                print("    " + (r.stdout + r.stderr).strip()[:400].replace("\n", "\n    ")); fail = 1
+        print("===== 总结 ===== " + ("全部通过" if not fail else "有失败项"))
+        return fail
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# Godot 4.7 的 Android 导出预设；键少的那些由 Godot 用默认值补
+EXPORT_PRESET = """[preset.0]
+
+name="Android"
+platform="Android"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter=""
+exclude_filter=""
+export_path=""
+encryption_include_filters=""
+encryption_exclude_filters=""
+seed=0
+encrypt_pck=false
+encrypt_directory=false
+
+[preset.0.options]
+
+custom_template/debug=""
+custom_template/release=""
+gradle_build/use_gradle_build=false
+architectures/arm64-v8a=true
+package/unique_name="com.example.cccodroid.selftest"
+package/name="cccodroid-godot-selftest"
+package/signed=true
+version/code=1
+version/name="1.0"
+"""
+
+
+def usage():
+    print(__doc__.strip() if __doc__ else PROG)
+
+
+def main(argv):
+    if argv and argv[0] == "--selftest":
+        return selftest()
+    if argv and argv[0] in ("--help", "-h"):
+        usage(); return 0
+    if not argv:
+        usage(); return 2
+    if not os.path.isfile(GODOT):
+        return die(f"找不到 {GODOT}（组件没装好？）", 3)
+    if ("--editor" in argv or "-e" in argv) and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        sys.stderr.write(f"{PROG}: 这是编辑器（GUI），本机没有显示服务器（DISPLAY/WAYLAND_DISPLAY 都没设），"
+                         "多半起不来。\n  无头跑工程用 --headless；GUI 编辑器要等 cccodroid 有显示层。\n")
+    if argv and argv[0] == "--prepare":
+        try:
+            prepare()
+        except Exception as e:                                   # noqa: BLE001
+            return die(str(e), 3)
+        return 0
+
+    ver = godot_version()
+    if not ver:
+        return die("godot 跑不起来（--headless --version 失败）", 3)
+    if any(a.startswith("--export") for a in argv):
+        # 导出前把环境备好；模板不在就先拦下（godot 自己那句话太难懂）
+        try:
+            prepare(out=sys.stderr)
+        except Exception as e:                                   # noqa: BLE001
+            return die(f"准备导出环境失败：{e}", 3)
+        if not templates_ok(ver):
+            sys.stderr.write(
+                f"{PROG}: 导出模板没装（{templates_dir(ver)} 里没有 android_debug.apk）。\n"
+                "  先问用户同不同意下官方的导出模板（1.28 GB），同意后运行：godot-templates download\n"
+                "  或者用本地已有的副本：godot-templates use <目录或 .tpz>\n")
+            return 3
+    r = subprocess.run([GODOT] + argv)
+    return r.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

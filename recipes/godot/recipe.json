@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "id": "godot",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "Godot 引擎（无头跑 / 导出 Android APK）", "en": "Godot engine (headless run / Android export)" },
+  "desc": {
+    "zh": "Godot 4 游戏引擎（Termux 的 bionic 原生构建）：无头跑工程、导入资源、把工程导出成 Android APK。没有图形界面（编辑器要屏幕，本组件不带）。带 godot-run 包装命令，导出前自动把 Android SDK 垫片和编辑器设置备好；导出模板（官方 1.28 GB 的包）不随组件发，用 godot-templates 按需装。",
+    "en": "Godot 4 game engine (Termux's bionic build): run projects headless, import assets, export a project to an Android APK. No GUI (the editor needs a display). godot-run prepares the Android SDK shim and editor settings before an export; the official 1.28 GB export templates are not bundled - install them on demand with godot-templates."
+  },
+  "roots": ["godot"],
+  "repos": ["x11"],
+  "exclude": ["opengl", "speechd"],
+  "bin": ["godot", "godot-run", "godot-templates"],
+  "selftest": "godot-run --selftest",
+  "category": "dev",
+  "license": "MIT",
+  "homepage": "https://godotengine.org",
+  "maintainers": ["greyoak111"],
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "files": {
+    "usr/bin/godot-run": { "src": "bin/godot-run", "mode": "755" },
+    "usr/bin/godot-templates": { "src": "bin/godot-templates", "mode": "755" }
+  },
+  "notes": "上游 termux x11 仓库的 godot 4.7.2（bionic 原生构建），装后 245.6 MB / 下载 73.8 MB / 4262 个文件 / 30 个包。**不依赖 Shizuku**：应用身份下 /dev/input 虽然 Permission denied，但这版二进制里根本没有 glibc 版那段会踩堆损坏的代码（输入走 SDL），探针实测 --headless --version / --quit / --import / --editor --quit 四条路全 rc=0。只承诺无头。两处 exclude：①opengl —— 692 字节的**空壳元包**（Depends: libglvnd, mesa，data 里一个文件都没有），唯一带来的文件是 1 字节的 usr/var/lib/dpkg/info/opengl.list 占位，底座里已有同名同内容的、libreoffice 也带它（之前探针装/卸时「覆盖」的就是这个文件）；排除后 GL 库由底座提供（libGL.so.1 在底座里），实测不受影响。②speechd —— godot 上游声明的 TTS 依赖，但 Termux 的 speechd 带了 sd_kali / sd_baratinoo 两个引擎模块，它们要的 libKali/libKGlobal/libKTrans/libKParle/libKAnalyse/libbaratinoo 上游**根本没打包**，审计按「usr/libexec 下的可执行程序是要紧的」判 ❌（7 个库找不到）。godot 二进制并不链接 libspeechd（运行时才 dlopen），去掉后 TTS（DisplayServer.tts_*）用不了，跑工程/导入/导出都不受影响（selftest 全过、真机导出 APK 照旧），顺带少 5 个包、小 12 MB。和 libreoffice 共用 5 个包（desktop-file-utils、hicolor-icon-theme、libepoxy、libxinerama、libxrandr），版本和它完全一致（同一份底座快照），不会出现「谁先装谁生效」那种版本打架。godot-run 包装脚本做三件事：导出前自动准备 Android 环境（假 adb + 包着 $PREFIX/bin/apksigner 的垫片 + **0 字节**的 android.jar，放在 $PREFIX/share/cccodroid/components/godot/android-sdk/，不往 $HOME 撒；非 gradle 导出只检查 android.jar 在不在，真 jar 27 MB）；把编辑器设置里三个键（android_sdk_path / java_sdk_path / debug_keystore）**只补缺的**、绝不覆盖用户已有的设置；第一次导出前用 keytool 现场生成 debug keystore（调试密钥，发布要用用户自己的）。模板没装时导出前就拦下并说明（godot 自己那句 No export template found 不好懂）。导出模板是官方 1.28 GB 的 tpz（35 个平台），组件里**不带**也不放 fetch，用 godot-templates 装：先只打印「下什么、多大、从哪、怎么校验、装到哪」，用户同意后 godot-templates download；sha512 对着同 release 的 SHA512-SUMS.txt 核对，不符就删文件并失败；只解 Android 的三个文件（android_debug.apk + android_release.apk + version.txt，232 MB），tpz 下完就删；模板版本必须等于 godot --version 去掉 .termux 后缀。本机已有副本可以 godot-templates use <目录>（不下载、不校验）。selftest 约 18 秒：版本、最小工程 --headless --quit（核对主场景 _ready 真跑到）、--import、导出环境（写进临时 HOME，验证只补键不动用户设置）、有模板时真导出 APK 并 apksigner verify（没模板就打印「跳过（模板没装）」不算失败）。首次运行脚本（包 postinst）：at-spi2-core、desktop-file-utils、gtk-update-icon-cache、gtk3、shared-mime-info。"
+}
