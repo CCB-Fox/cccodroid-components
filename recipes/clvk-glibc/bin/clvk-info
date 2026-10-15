@@ -1,0 +1,41 @@
+#!{{PREFIX}}/bin/sh
+# clvk-info —— clvk 组件入口：确认 glibc 侧的 OpenCL（clvk → SPIR-V → Vulkan → Turnip）真的能用
+#
+#   clvk-info          枚举平台/设备，编译并执行一个向量加 kernel（真算出结果才算过）
+#   clvk-info --env    只打印环境变量（自己起进程时照抄）
+#
+# 退出码 0 = 可用。进程经 glibc GPU 组件的 lgpu-run 启动：Vulkan 加载器与 Turnip ICD 都在那边，
+# 由它注入（顺带摘掉 cccodroid shell 挂的 bionic LD_PRELOAD —— glibc 程序不能要那个）。
+set -u
+PREFIX="{{PREFIX}}"
+LX="$PREFIX/libexec/devkit/components/clvk-glibc"
+RUN="$PREFIX/bin/lgpu-run"
+
+if [ "${1:-}" = "--env" ]; then
+  echo "LD_LIBRARY_PATH=$PREFIX/glibc/lib"
+  echo "# libOpenCL.so（clvk）与 libvulkan.so.1 都在 $PREFIX/glibc/lib"
+  echo "# OpenCL 头文件在 $PREFIX/glibc/include/CL/（cl.h / cl_platform.h / cl_version.h）"
+  echo "# Vulkan 那一半（加载器 + Turnip ICD）由 lgpu-run 注入，单独起进程时用：lgpu-run <程序>"
+  exit 0
+fi
+
+missing=""
+for f in "$PREFIX/glibc/lib/libOpenCL.so" \
+         "$PREFIX/glibc/include/CL/cl.h" \
+         "$LX/clprobe"; do
+  [ -f "$f" ] || missing="$missing
+  ✗ $f"
+done
+if [ -n "$missing" ]; then
+  printf '组件文件不全（重装 clvk 组件就能补回来）：%s\n' "$missing" >&2
+  exit 2
+fi
+
+if [ ! -x "$RUN" ]; then
+  echo "✗ 没有 lgpu-run —— 先装 glibc 的 GPU 组件：Vulkan 加载器与 Turnip 在那边" >&2
+  exit 3
+fi
+[ -f "$PREFIX/glibc/lib/libvulkan.so.1" ] || \
+  echo "⚠ 没看到 $PREFIX/glibc/lib/libvulkan.so.1 —— glibc 的 GPU 组件可能没装好" >&2
+
+exec "$RUN" "$LX/clprobe"
