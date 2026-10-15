@@ -12,6 +12,7 @@
   "bin": ["gnucap", "gnucap-run"],
   "selftest": "gnucap-run --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "eda",
   "license": "GPL-3.0-or-later",
   "homepage": "https://www.gnu.org/software/gnucap/gnucap.html",
   "maintainers": ["greyoak111"],
