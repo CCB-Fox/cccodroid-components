@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "id": "clvk-glibc",
+  "kind": "glibc",
+  "revision": 1,
+  "version": "2026.10.15",
+  "name": { "zh": "OpenCL 组件（clvk，glibc）", "en": "OpenCL component (clvk, glibc)" },
+  "desc": {
+    "zh": "让 glibc（Linux arm64）程序在本机 Adreno GPU 上跑 OpenCL：kernel 由内嵌的 clspv 编成 SPIR-V，走本机 Turnip（Vulkan）执行。llama.cpp 的 OpenCL 后端、自己写的 kernel 都能用。厂商的 OpenCL 驱动是 bionic 库，glibc 程序加载不了 —— glibc 侧要用 OpenCL 只能装它（还要先装 glibc 的 GPU 组件，Vulkan 加载器与 Turnip 在那边）。",
+    "en": "Runs OpenCL on the device's Adreno GPU for glibc (Linux arm64) programs: kernels are compiled to SPIR-V by the embedded clspv and executed on Turnip (Vulkan). The vendor's OpenCL driver is a bionic library that glibc processes cannot load, so this is the only way to get OpenCL on the glibc side (it also needs the glibc GPU component, which ships the Vulkan loader and Turnip)."
+  },
+  "roots": ["glibc"],
+  "bin": ["clvk-info"],
+  "selftest": "clvk-info",
+  "needs": { "shizuku": false, "display": false, "gpu": "adreno" },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/kpet/clvk",
+  "maintainers": ["greyoak111"],
+  "requires": ["gpu-driver-glibc"],
+  "fetch": {
+    "usr/glibc/lib/libOpenCL.so": {
+      "url": "https://github.com/greyoak111/cccodroid-gpu-driver-snapdragon/releases/download/clvk-2026.10.15/libOpenCL.so",
+      "sha256": "0dc0b5e04ba3047e31712bb7baf80f4b90d4b8ddb0f485a815e4015b069cdded",
+      "source": "clvk",
+      "version": "2026.10.15",
+      "why": "clvk 本体（OpenCL over Vulkan）。官方仓库的 clvk 是 bionic 的、glibc 进程加载不了，termux-glibc 仓库里没有任何 OpenCL 包 —— 这份是从 kpet/clvk 编出来的 glibc 版（clspv + libclc 内嵌在里面，clCreateProgramWithSource 直接能编 kernel）"
+    },
+    "usr/glibc/lib/libOpenCL.so.1": { "link": "libOpenCL.so" },
+    "usr/libexec/devkit/components/clvk-glibc/clprobe": {
+      "url": "https://github.com/greyoak111/cccodroid-gpu-driver-snapdragon/releases/download/clvk-2026.10.15/clprobe",
+      "sha256": "cd498af26f1921f1f297496d7b76f91e18575deeeb6027365a013c990feae805",
+      "mode": "755",
+      "source": "cccodroid-gpu-driver-snapdragon",
+      "why": "组件自带的 OpenCL 自测程序（枚举平台/设备 → 编译一个向量加 kernel → 真跑一遍比对结果）。它 dlopen libOpenCL.so，所以 clvk 换了版本它也不用重编"
+    },
+    "usr/glibc/include/CL/cl.h": {
+      "url": "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/30bc20a8e90468e231d7c639805ae61ad1fefa4f/CL/cl.h",
+      "sha256": "a5558d666fa0ab4a0a337b89fe72d82591e088d5e8a5532c63c6988a6258ecca",
+      "source": "OpenCL-Headers",
+      "version": "30bc20a8",
+      "why": "Khronos 官方的 OpenCL 头文件（Apache-2.0）：写 OpenCL 程序要 #include <CL/cl.h>，官方仓库里没有 OpenCL 头文件包"
+    },
+    "usr/glibc/include/CL/cl_platform.h": {
+      "url": "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/30bc20a8e90468e231d7c639805ae61ad1fefa4f/CL/cl_platform.h",
+      "sha256": "5c30bd160b5378d65ef26b54263b5eee0de349330a13434b508b791753b2958c",
+      "source": "OpenCL-Headers",
+      "version": "30bc20a8",
+      "why": "cl.h 依赖它（平台相关的类型定义）"
+    },
+    "usr/glibc/include/CL/cl_version.h": {
+      "url": "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/30bc20a8e90468e231d7c639805ae61ad1fefa4f/CL/cl_version.h",
+      "sha256": "1e571dd68566330dd066cf778e07909a3cabeb2b969c5578c60f14baba7df1af",
+      "source": "OpenCL-Headers",
+      "version": "30bc20a8",
+      "why": "cl.h 依赖它（认目标 OpenCL 版本）"
+    }
+  },
+  "files": {
+    "usr/bin/clvk-info": { "src": "bin/clvk-info", "mode": "755" }
+  },
+  "notes": "为什么走 fetch：glibc 侧的 OpenCL 只能自编（官方仓库的 clvk 是 bionic，termux-glibc 里没有 OpenCL）。libOpenCL.so 由 greyoak111/cccodroid-gpu-driver-snapdragon 的 build-clvk 工作流编出（run 38633597506，ubuntu-24.04-arm，CLVK_CLSPV_ONLINE_COMPILER=ON），llvm-strip 后传到 Release clvk-2026.10.15；clprobe 的源码是同一仓库的 glibc/lib/clprobe.c。依赖 gpu-driver-glibc（Vulkan 加载器与 glibc 侧 Turnip）。换上游版本：发新 Release → 本配方改 url/sha256/version（revision 可回到 1）；只改 skill 或脚本：revision 加一（发布版本是 <version>-r<revision>）。"
+}
