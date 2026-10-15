@@ -14,6 +14,7 @@ cccodroid reads this repository since 0.1.10. Preset components such as the brow
 |---|---|---|---|---|
 | `gh` | GitHub CLI: pull requests, issues, releases, Actions | Dev | | MIT |
 | `godot` | Godot 4 engine: headless runs, Android APK export | Dev | | MIT |
+| `blender` | Headless Blender 4.3: Python-scripted compositing, motion graphics and video output; 3D rendering can use the GPU | Media | Downloads the engine from Debian on first use (about 267 MB) | GPL-2.0-or-later |
 | `libreoffice` | Headless LibreOffice: convert documents, export PDF | Office | | MPL-2.0 AND LGPL-3.0 |
 | `llama-cpp` | llama.cpp: local LLM inference | AI | Bring your own model (.gguf) | MIT |
 | `openscad` | OpenSCAD: script-based 3D modelling, STL and other exports, with the MCAD library | 3D & CAD | | GPL-2.0-only |
@@ -26,7 +27,7 @@ cccodroid reads this repository since 0.1.10. Preset components such as the brow
 | `clvk-glibc` | OpenCL (clvk, on top of Vulkan) for glibc programs | GPU | Snapdragon only; needs `gpu-driver-glibc` | Apache-2.0 |
 | `gpu-bench` | GPU info and benchmarks (clinfo / vkmark / clpeak) | GPU | Snapdragon only; needs `gpu-driver` | CC0-1.0 AND GPL-3.0-or-later AND GPL-2.0-or-later |
 
-Every component above has been verified on a real device with the current toolchain (devkit-2026.10.15.1). Some were tested directly; others inherited a verification from an earlier toolchain (see "Device verification" below). The records are in [`verified.json`](verified.json).
+Except for the newly added `blender`, every component above has been verified on a real device with the current toolchain (devkit-2026.10.15.1). Some were tested directly; others inherited a verification from an earlier toolchain (see "Device verification" below). The records are in [`verified.json`](verified.json).
 
 The app won't offer "Snapdragon only" components on devices with other chips. For components with dependencies, the app asks you to install those first and won't let you remove them while something still depends on them.
 

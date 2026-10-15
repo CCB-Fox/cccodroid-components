@@ -14,6 +14,7 @@ cccodroid 从 0.1.10 起读这个仓库。浏览器（Chromium）这类预置组
 |---|---|---|---|---|
 | `gh` | GitHub 命令行：PR、Issue、Release、Actions | 开发 | | MIT |
 | `godot` | Godot 4 引擎：无头运行、导出 Android APK | 开发 | | MIT |
+| `blender` | Blender 4.3 无头版：用 Python 脚本做合成、动效、出片，3D 渲染可走 GPU | 图像影音 | 首次使用从 Debian 下载本体（约 267 MB） | GPL-2.0-or-later |
 | `libreoffice` | LibreOffice 无头版：文档互转、出 PDF | 办公 | | MPL-2.0 AND LGPL-3.0 |
 | `llama-cpp` | llama.cpp：本地大模型推理 | AI | 模型自备（.gguf） | MIT |
 | `openscad` | OpenSCAD：用脚本建 3D 模型，导出 STL 等格式，带 MCAD 库 | 3D 与建模 | | GPL-2.0-only |
@@ -26,7 +27,7 @@ cccodroid 从 0.1.10 起读这个仓库。浏览器（Chromium）这类预置组
 | `clvk-glibc` | OpenCL（clvk，跑在 Vulkan 上），给 glibc 程序用 | GPU | 仅骁龙；依赖 `gpu-driver-glibc` | Apache-2.0 |
 | `gpu-bench` | GPU 信息与跑分（clinfo / vkmark / clpeak） | GPU | 仅骁龙；依赖 `gpu-driver` | CC0-1.0 AND GPL-3.0-or-later AND GPL-2.0-or-later |
 
-表里的组件都在当前工具包（devkit-2026.10.15.1）上真机验证过：有的直接验，有的从旧工具包上的验证记录自动继承（见下面「真机验证」）。具体记录在 [`verified.json`](verified.json)。
+除新上架的 `blender` 外，表里的组件都在当前工具包（devkit-2026.10.15.1）上真机验证过：有的直接验，有的从旧工具包上的验证记录自动继承（见下面「真机验证」）。具体记录在 [`verified.json`](verified.json)。
 
 「仅骁龙」的组件，App 在别家芯片的设备上不给装。有依赖的组件，App 会先让你装好依赖，依赖也不能在它之前卸载。
 
