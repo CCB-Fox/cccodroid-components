@@ -28,8 +28,8 @@ description: 在本机跑大语言模型（llama.cpp）：命令行推理、量 
 llama-run --selftest
 ```
 
-看 `===== 总结 ===== 全部通过`。它检查：版本、能列出设备（CPU/Vulkan/OpenCL）、
-厂商 OpenCL 库找得到、模型目录在哪、以及模型路径写错时会不会清楚报错。约 2 秒。
+看 `===== 总结 ===== 全部通过`。它检查：版本、能列出设备（Vulkan0 = Turnip）、
+模型目录在哪、默认用几个线程，以及模型路径写错时会不会清楚报错。约 2 秒。
 
 ## 最快上手
 
@@ -50,9 +50,10 @@ llama-run -m qwen2.5-0.5b -p "用一句话说明电阻是什么" -n 48 -st
 | **Vulkan**（Turnip）`-ngl 99 -t 4` | **271～280 t/s** | 28.6～29.9 t/s |
 | **CPU** `-dev none -t 4` | 67～74 t/s | **25～38 t/s** |
 | CPU 默认线程数（7） | 37～67 t/s | 10～17 t/s |
-| OpenCL（厂商 Adreno 驱动）`-t 4` | 51～58 t/s | **5～6 t/s** |
+| （参考）厂商 OpenCL `-t 4` | 51～58 t/s | **5～6 t/s** |
 
-（r=3~5 的 llama-bench 数据，手机跑久了会降频所以给了区间。）
+（r=3~5 的 llama-bench 数据，手机跑久了会降频所以给了区间。最后一行那个后端
+**组件里没装**，见下面的说明。）
 
 三条结论，都跟直觉不太一样，是实测出来的：
 
@@ -62,9 +63,9 @@ llama-run -m qwen2.5-0.5b -p "用一句话说明电阻是什么" -n 48 -st
 2. **Vulkan 在「提示处理」上快约 4 倍**（271 vs 70 t/s），但**生成速度两者差不多** ——
    生成是内存带宽瓶颈，一个 0.5B 模型 CPU 完全够用。
    想快就把 `-ngl 99` 拉满（llama.cpp 新版默认 `-ngl auto`，本机 auto 已经会走 Vulkan）。
-3. **厂商 OpenCL 后端别用。** 直觉上「高通给 Adreno 优化的 OpenCL 应该最快」，
-   实测最慢（5 t/s，只有 Vulkan 的 1/6）。真要用得显式开：
-   `llama-run --backend opencl …`。
+3. **高通的厂商 OpenCL 后端最慢**：直觉上「高通给 Adreno 优化的应该最快」，实测反过来，
+   只有 Vulkan 的 1/6。**这个后端没有打进组件**（原因见下）—— 别去找 `--backend opencl`，
+   它不在。GPU 就走 Vulkan。
 
 想自己复现这张表：
 
@@ -75,19 +76,20 @@ llama-run --bench -m qwen2.5-0.5b -p 64 -n 32 -r 3
 ## 换后端
 
 ```sh
-llama-run --backend vulkan -m qwen2.5-0.5b -p "…" -n 64 -st
+llama-run --backend vulkan -m qwen2.5-0.5b -p "…" -n 64 -st     # 默认就是它，一般不用写
 llama-run --backend cpu    -m qwen2.5-0.5b -p "…" -n 64 -st     # 不想用 GPU 时
-llama-run --backend opencl -m qwen2.5-0.5b -p "…" -n 64 -st
 ```
 
-- `--backend cpu` → 加 `-dev none`；`vulkan` → `-dev Vulkan0`；`opencl` → `-dev GPUOpenCL`
-  并且自动把 `/vendor/lib64` 加进 `LD_LIBRARY_PATH`。
-- **为什么要那一步**：`libggml-opencl.so` 链接的是 `libOpenCL.so`，应用的名字空间里找不到它
-  （实测 dlopen 报 `library "libOpenCL.so" not found … in namespace (default)`），
-  把 `/vendor/lib64` 挂上就能加载（那边只有 HAL 库和厂商 OpenCL，不会遮蔽我们的库）。
-  装了 gpu-driver 组件的话，`gpu-run --opencl …` 是另一条等效的路。
+- `--backend cpu` → 加 `-dev none`；`vulkan` → `-dev Vulkan0`。没有第三个后端。
 - **Vulkan 不用做任何准备**：底座里有 libvulkan，Turnip（gpu-driver 提供的）默认就能被认出来，
   `llama-cli --list-devices` 直接就有 `Vulkan0: Turnip Adreno (TM) 725`。
+
+### 为什么没有 OpenCL 后端
+
+llama.cpp 的 OpenCL 后端是单独一个包（`llama-cpp-backend-opencl`），它里面的
+`libggml-opencl.so` 链接 **`/vendor/lib64/libOpenCL.so`** —— 那是**厂商私有库，不能随组件发布**
+（静态审计会明确报「链接的库哪里都找不到」，属于必须修的项）。而且它是实测最慢的后端
+（5～6 t/s，Vulkan 的 1/6），少它不影响任何正常用法。**要 GPU 就用 Vulkan。**
 
 ## 起本地 API 服务（OpenAI 兼容）
 
