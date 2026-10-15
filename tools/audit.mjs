@@ -26,7 +26,7 @@ if (opt("only")) ids = opt("only").split(",");
 else if (opt("changed")) {
   const ch = run("git", ["diff", "--name-only", `${opt("changed")}...HEAD`]).split("\n").filter(Boolean);
   // 改了审计本身或打包工具：全审一遍，顺便验证规则没误伤已有组件
-  ids = ch.some((f) => f === "tools/audit.mjs" || f === "bases.json") ? all.map((r) => r.id)
+  ids = ch.some((f) => f === "tools/audit.mjs" || f === "tools/ci-selftest.mjs" || f === "bases.json") ? all.map((r) => r.id)
     : [...new Set(ch.map((f) => /^recipes\/([^/]+)\//.exec(f)?.[1]).filter((id) => id && byId.has(id)))];
 } else ids = all.map((r) => r.id);
 
@@ -171,6 +171,8 @@ const SKILL_FLAGS = [
 ];
 
 let fails = 0;
+const targets = [];                                  // 给 ci-selftest.mjs：审了哪些、包在哪、依赖按先后
+const tarOf = (id) => built.get(id)?.tar || null;
 const report = [`## 组件审计报告`, ``, `底座 \`${base.tag}\`（${base12}）· 规则见 \`tools/audit.mjs\` 开头。🟢 看报告即可 · 🟡 要读脚本和 skill · 🔴 要逐行审`, ``];
 for (const id of ids) {
   const r = byId.get(id);
@@ -311,8 +313,12 @@ for (const id of ids) {
     `和别的组件共用的包：${shared.length ? shared.join("；") : "无"}`, "",
     `<details><summary>包清单</summary>\n\n| 包 | 版本 | 下载 |\n|---|---|---|\n` + pk.map((p) => `| ${p.name} | ${p.version} | ${mb(p.size)} |`).join("\n") + "\n\n</details>", "");
   console.log(`${icon} ${id}：${errs.length} 错 ${warns.length} 警告`);
+  targets.push({ id, version: m.version, ok: !errs.length, tar: b.tar, selftest: r.selftest || "", needs: r.needs || {},
+    deps: [...reqs].reverse().filter((d) => byId.has(d)).map((d) => ({ id: d, tar: tarOf(d) })) });
 }
 if (!ids.length) report.push("这次没有改动配方，没审什么。");
+fs.mkdirSync(path.join(WORK, "audit"), { recursive: true });
+fs.writeFileSync(path.join(WORK, "audit", "targets.json"), JSON.stringify(targets, null, 1));
 let text = report.join("\n");
 if (text.length > 60000) text = text.slice(0, 60000) + "\n\n…（太长截断了，完整的看 CI 的 Summary）";
 if (opt("out")) fs.writeFileSync(opt("out"), text + "\n");
