@@ -40,7 +40,7 @@ SELF="$(readlink -f "$0" 2>/dev/null)"; [ -n "$SELF" ] || SELF="$0"
 
 # 本次运行的东西全放一个工作目录里，退出时整个删掉。
 # （不能只用一个「待删清单」变量：改写脚本是在 $( ) 里跑的，子 shell 里往清单里加东西
-#   加不进父 shell，会留下垃圾 —— 实测漏过一串 /tmp/yosys-run-script.*。目录就不一样了。）
+#   加不进父 shell，会留下垃圾 —— 实测在临时目录里漏过一串 yosys-run-script.*。目录就不一样了。）
 WORK="$TMP/yosys-run.$$"
 mkdir -p "$WORK" 2>/dev/null
 trap '[ -n "${WORK:-}" ] && rm -rf "$WORK"' EXIT
