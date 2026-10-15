@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+# vcd2svg — 把 VCD 波形文件画成 SVG（cccodroid 的 iverilog 组件）
+#
+#   vcd2svg 输入.vcd [输出.svg] [--signals 名字…] [--max N]
+#   vcd2svg --selftest
+#
+# 纯粹为了「让用户看一眼波形」：仿真跑完 `$dumpfile`/`$dumpvars` 会留下 .vcd，
+# 这个脚本把它画成时序图（1 位的画方波，多位的画带数值的块），存成 SVG。
+# 只用 Python 标准库，不装任何东西、不联网。
+#
+# --signals 可以给逗号分隔的名字或子串（例如 `--signals clk,q`），默认全画（最多 --max 16 个）。
+# 信号名按 VCD 里的层次拼（`tb.dut.q`），重的名字不会混。
+#
+# 退出码：0 画好了；1 输入有问题；2 用法不对。
+import sys, os, re
+
+PROG = "vcd2svg"
+
+
+def die(msg, code=1):
+    sys.stderr.write(f"{PROG}: {msg}\n")
+    return code
+
+
+UNIT_S = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9, "ps": 1e-12, "fs": 1e-15}
+
+
+def parse_timescale(text):
+    """`$timescale 1ns/1ps $end` → 1e-12（VCD 里的 #N 用的是**精度**那一档，不是 1ns）。
+    实测 Icarus：timescale 写 1ns/1ps、仿真跑到 100ns，VCD 里写的是 #100000 —— 就是 ps。"""
+    m = re.search(r"(\d+)\s*([munpf]?s)(?:\s*/\s*(\d+)\s*([munpf]?s))?", text)
+    if not m:
+        return None
+    mag, unit = int(m.group(1)), m.group(2)
+    if m.group(3):
+        mag, unit = int(m.group(3)), m.group(4)
+    return mag * UNIT_S[unit]
+
+
+def parse_vcd(path):
+    """→ (signals, changes, tmax, prec_s)
+    signals: [{name, width, code}]；changes: {code: [(t, value_str), …]}；prec_s: 每个 #N 是多少秒"""
+    sigs, order, changes = [], [], {}
+    scope, tmax, t = [], 0, 0
+    pending = None
+    prec_s = None
+    ts_buf = ""
+    with open(path, "r", errors="replace") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            if pending is not None:                      # $comment … $end / $var … $end
+                if pending == "$timescale":
+                    ts_buf += " " + line
+                if line == "$end" or line.endswith("$end"):
+                    if pending == "$timescale":
+                        prec_s = parse_timescale(ts_buf)
+                        ts_buf = ""
+                    pending = None
+                continue
+            if line.startswith("$"):
+                # $scope / $var / $comment 这些既可以一行写完（… $end 收在同一行），
+                # 也可以拆成多行、以单独一行 $end 结束 —— 两种都要认。
+                inline = line.endswith("$end")
+                if line.startswith("$scope"):
+                    parts = line.split()
+                    scope.append(parts[2] if len(parts) > 2 else "?")
+                    pending = None if inline else "$scope"
+                elif line.startswith("$upscope"):
+                    if scope:
+                        scope.pop()
+                    pending = None if inline else "$upscope"
+                elif line.startswith("$var"):
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        width, code, name = parts[2], parts[3], parts[4]
+                        full = ".".join(scope + [name]) if scope else name
+                        sigs.append({"name": full, "width": int(width), "code": code})
+                        order.append(code)
+                        changes.setdefault(code, [])
+                    pending = None if inline else "$var"
+                elif line.startswith("$timescale"):
+                    ts_buf = line[len("$timescale"):]
+                    if inline:
+                        prec_s = parse_timescale(ts_buf)
+                        ts_buf = ""
+                    else:
+                        pending = "$timescale"
+                elif line.startswith(("$comment", "$date", "$version")):
+                    pending = None if inline else "$comment"
+                continue
+            if line.startswith("#"):
+                try:
+                    t = int(line[1:])
+                except ValueError:
+                    continue
+                tmax = max(tmax, t)
+                continue
+            if line.startswith(("b", "B")):              # 向量：b1010 <code>
+                head, _, code = line.partition(" ")
+                code = code.strip()
+                if code in changes:
+                    changes[code].append((t, head[1:].lower()))
+                continue
+            if line.startswith("$"):
+                continue
+            if len(line) >= 2 and line[0] in "01xXzZ":   # 标量：0<code>
+                code = line[1:]
+                if code in changes:
+                    changes[code].append((t, line[0].lower()))
+    return sigs, changes, tmax, prec_s
+
+
+def val_text(v, width):
+    if set(v) <= {"0", "1"}:
+        n = int(v, 2) if v else 0
+        return f"{n:x}" if width > 1 else v
+    return "x" if "x" in v else v
+
+
+def render(sigs, changes, tmax, out, prec_s=None):
+    W, L, R = 1000, 150, 30
+    RH = 34
+    H = 40 + RH * len(sigs) + 30
+    plot_w = W - L - R
+    tmax = max(1, tmax)
+    x = lambda t: L + plot_w * t / tmax
+    # 时间轴换算成好读的单位（VCD 里的 #N 是「精度」那一档，不换算会满屏 100000）
+    div, axis = 1, "时间（VCD 原始单位）"
+    if prec_s:
+        total_s = tmax * prec_s
+        for u in ("fs", "ps", "ns", "us", "ms", "s"):
+            if total_s / UNIT_S[u] >= 1:
+                div, axis = UNIT_S[u] / prec_s, f"时间 / {u}"
+    label = lambda t: f"{t / div:g}"
+
+    def nice_step(span, target_lines=8):
+        raw = span / target_lines
+        base = 1
+        while base * 10 < raw:
+            base *= 10
+        for m in (1, 2, 5, 10):
+            if base * m >= raw:
+                return base * m
+        return base * 10
+
+    o = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',
+         f'<rect width="{W}" height="{H}" fill="white"/>']
+    step = nice_step(tmax)
+    t = 0
+    while t <= tmax:
+        gx = x(t)
+        o.append(f'<line x1="{gx:.1f}" y1="28" x2="{gx:.1f}" y2="{H-24}" stroke="#eee"/>')
+        o.append(f'<text x="{gx:.1f}" y="{H-8}" font-size="11" text-anchor="middle" fill="#666">{label(t)}</text>')
+        t += step
+    o.append(f'<text x="{W-R}" y="16" font-size="11" text-anchor="end" fill="#888">{axis}</text>')
+
+    for i, s in enumerate(sigs):
+        y0 = 40 + i * RH
+        o.append(f'<text x="{L-8}" y="{y0+RH/2+4:.0f}" font-size="12" text-anchor="end" fill="#222">{s["name"]}</text>')
+        seq = changes.get(s["code"], [])
+        if not seq:
+            seq = [(0, "x" * s["width"])]
+        # 每次变化以后的电平；末尾补到 tmax
+        pts = seq + [(tmax, None)]
+        path = []
+        boxes = []
+        for k in range(len(pts) - 1):
+            tv, v = pts[k]
+            tn = pts[k + 1][0]
+            if s["width"] == 1:
+                high = v == "1"
+                yv = y0 + (10 if high else 24)
+                path.append(f"M {x(tv):.1f} {yv} L {x(tn):.1f} {yv}")
+                yv2 = y0 + (24 if high else 10)
+                path.append(f"M {x(tn):.1f} {yv} L {x(tn):.1f} {yv2}")
+            else:
+                top, bot = y0 + 8, y0 + 26
+                boxes.append((max(x(tv), L), top, max(x(tn) - x(tv), 0), bot - top,
+                              val_text(v, s["width"]), set(v) <= {"0", "1"}))
+                o.append(f'<rect x="{max(x(tv),L):.1f}" y="{top}" width="{max(x(tn)-x(tv),0):.1f}" '
+                         f'height="{bot-top}" fill="#eef4ff" stroke="#9dbcdf"/>')
+        if path:
+            o.append(f'<path d="{" ".join(path)}" fill="none" stroke="#1a6fd4" stroke-width="1.8"/>')
+        for bx, by, bw, bh, txt, known in boxes:
+            if bw > 14:
+                o.append(f'<text x="{bx+bw/2:.1f}" y="{by+bh/2+4:.1f}" font-size="11" text-anchor="middle" '
+                         f'fill="{"#123" if known else "#b33"}">{txt}</text>')
+    o.append("</svg>")
+    with open(out, "w") as fh:
+        fh.write("\n".join(o) + "\n")
+
+
+def main(argv):
+    if not argv:
+        return die("用法：vcd2svg 输入.vcd [输出.svg] [--signals 名1,名2] [--max N]", 2)
+    if argv[0] == "--selftest":
+        return selftest()
+    src = argv[0]
+    dst = None
+    want, mx = None, 16
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--signals":
+            i += 1
+            want = [s for s in argv[i].split(",") if s] if i < len(argv) else None
+        elif a == "--max":
+            i += 1
+            try:
+                mx = int(argv[i])
+            except (IndexError, ValueError):
+                return die("--max 要个整数", 2)
+        elif not a.startswith("-") and dst is None:
+            dst = a
+        else:
+            return die(f"不认识这个参数：{a}", 2)
+        i += 1
+    if not os.path.isfile(src):
+        return die(f"没有这个文件：{src}")
+    dst = dst or os.path.splitext(src)[0] + ".svg"
+
+    sigs, changes, tmax, prec_s = parse_vcd(src)
+    if not sigs:
+        return die(f"{src} 里没找到 $var 声明，不像是 VCD 文件")
+    if want:
+        sigs = [s for s in sigs if any(w == s["name"] or w in s["name"] for w in want)]
+        if not sigs:
+            return die("--signals 没匹配上任何信号")
+    if len(sigs) > mx:
+        sys.stderr.write(f"{PROG}: 信号有 {len(sigs)} 个，只画前 {mx} 个（用 --signals 挑）\n")
+        sigs = sigs[:mx]
+    render(sigs, changes, tmax, dst, prec_s)
+    print(dst)
+
+
+def selftest():
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="vcd2svg-selftest.")
+    vcd = os.path.join(tmp, "t.vcd")
+    with open(vcd, "w") as fh:
+        fh.write("""$timescale 1ns $end
+$scope module tb $end
+$var wire 1 ! clk $end
+$var wire 4 " q [3:0] $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+0!
+b0000 "
+#5
+1!
+#10
+0!
+b0001 "
+#15
+1!
+#20
+0!
+b0010 "
+#25
+1!
+#30
+$end
+""")
+    svg = os.path.join(tmp, "t.svg")
+    sigs, changes, tmax, prec_s = parse_vcd(vcd)
+    if len(sigs) != 2 or tmax != 30:
+        return die(f"解析不对：{len(sigs)} 个信号、tmax={tmax}（期望 2 / 30）")
+    if changes["!"][0] != (0, "0") or changes['"'][1] != (10, "0001"):
+        return die(f"变化没解析对：{changes}")
+    if prec_s != 1e-9:
+        return die(f"$timescale 没解析对：{prec_s}（期望 1e-09）")
+    render(sigs, changes, tmax, svg, prec_s)
+    body = open(svg).read()
+    for must in ('<svg', 'clk', 'q', '<path', '<rect'):
+        if must not in body:
+            return die(f"生成的 SVG 里缺 {must}")
+    if not re.search(r'stroke="#1a6fd4"', body):
+        return die("没画出波形线")
+    print(f"✓ VCD 解析：2 个信号、timescale 1ns、t 到 {tmax}，clk 有 3 个上升沿")
+    print(f"✓ SVG 生成：{len(body)} 字节，含波形线和数值块")
+    print("===== 总结 ===== 全部通过")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
