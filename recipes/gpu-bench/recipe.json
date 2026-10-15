@@ -21,6 +21,7 @@
   },
   "bin": ["clinfo", "vkmark", "clpeak", "gpu-bench"],
   "selftest": "gpu-bench --selftest",
+  "category": "gpu",
   "license": "CC0-1.0 AND GPL-3.0-or-later AND GPL-2.0-or-later",
   "homepage": "https://github.com/vkmark/vkmark",
   "maintainers": ["greyoak111"],
