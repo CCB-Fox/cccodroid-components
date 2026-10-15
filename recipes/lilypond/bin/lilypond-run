@@ -116,7 +116,11 @@ mkdir -p "$(dirname "$BASE")" || { echo "lilypond-run: 建不了输出目录：$
 BASE="$(cd "$(dirname "$BASE")" && pwd)/$(basename "$BASE")"
 
 LOG="$(mktemp "$TMP/lilypond-run.XXXXXX")" || exit 1
-trap 'rm -f "$LOG"' EXIT
+# 另建一个空文件，只用来取「运行起点」的时间戳：**不能用 $LOG 当这个锚** ——
+# lilypond 的 stdout/stderr 全写进 $LOG，它的 mtime 会变成「运行结束」，
+# 于是本次产物反倒比它旧，会被整批误判成上一次留下的。
+STAMP="$(mktemp "$TMP/lilypond-run.XXXXXX")" || exit 1
+trap 'rm -f "$LOG" "$STAMP"' EXIT
 
 rc=0
 "$LILY" -dno-point-and-click -o "$BASE" "$@" "$IN" > "$LOG" 2>&1 || rc=$?
@@ -130,15 +134,21 @@ fi
 # 注意 LilyPond 的警告带 `文件:行:列: ` 前缀，只按行首匹配会全漏掉。
 noise < "$LOG" | grep -E "(^|[[:space:]])(warning|error|fatal error):" | sed 's/^/  /' >&2
 
-# 以「文件真的出来了」为准：LilyPond 出错时也可能返回 0
+# 以「文件真的出来了」为准：LilyPond 出错时也可能返回 0。
+# 但只能认**这次运行写出的**文件 —— 同目录可能躺着上一次编译的 pdf/midi（重跑时最常见），
+# 也可能有输入源文件本身，把它们当产物，「一个文件都没生成」就会被误报成成功。
+# 判据：拿 $STAMP（lilypond 启动前建的空文件）当运行起点，比它旧 = 上次留下的。
+# 写成「比起点旧才跳过」而不是「比起点新才算」，是为了让「与起点同秒」也算这次的产物
+# ——有些文件系统 mtime 只精确到秒，反向判断会把一秒内写出的真产物漏掉。
 produced=0
 for f in "$BASE".*; do
   [ -s "$f" ] || continue
-  case "$f" in *.log) continue ;; esac        # 自己的日志不算产物
+  [ "$STAMP" -nt "$f" ] && continue                # 比运行起点旧 = 上次留下的，不算
+  case "$f" in *.log|*.ly|*.ily) continue ;; esac  # 日志与输入源文件不算产物
   echo "$f"; produced=1
 done
 [ "$produced" = 1 ] || {
-  echo "lilypond-run: lilypond 说成功了，但 $BASE.* 里没有任何产物 —— 乐谱里没有 \\layout/\midi？" >&2
+  echo "lilypond-run: lilypond 说成功了，但 $BASE.* 里没有任何产物 —— 乐谱里没有可输出的 \\score？" >&2
   noise < "$LOG" | tail -12 | sed 's/^/  /' >&2
   exit 1
 }
