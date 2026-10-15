@@ -115,6 +115,8 @@ const ANDROID_LIBS = new Set(["libc.so", "libm.so", "libdl.so", "liblog.so", "li
   "libGLESv2.so", "libGLESv3.so", "libvulkan.so", "libOpenSLES.so", "libjnigraphics.so", "libmediandk.so", "libcamera2ndk.so",
   "libnativewindow.so", "libsync.so", "libneuralnetworks.so", "libOpenMAXAL.so", "libstdc++.so", "libaaudio.so", "libamidi.so",
   "libbinder_ndk.so", "libicu.so", "libvndksupport.so"]);
+// 厂商库：只在部分设备的 /vendor 里有（骁龙的 OpenCL 等），链了它的东西只能在那些设备上用 —— 提醒，不拦
+const VENDOR_LIBS = new Set(["libOpenCL.so", "libcdsprpc.so", "libQnnHtp.so", "libQnnSystem.so"]);
 const SHELL_BUILTINS = new Set(["cd", "echo", "test", "[", "true", "false", "printf", "export", "env", "sh", "bash", "command", "exec", "set"]);
 
 // ── 打包 ──
@@ -167,7 +169,7 @@ const SKILL_FLAGS = [
   ["🔴", "下载内容直接进 shell", /\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba|z)?sh\b/],
   ["🔴", "提权 / 动系统", /\bpriv\b|shizuku|settings put|\bpm (?:install|uninstall)\b|\bam (?:start|force-stop)\b/i],
   ["🟡", "删除 / 对外发布", /\brm -[a-z]*r[a-z]*f|\bpush --force|\bgh (?:release|repo) (?:create|delete)|\bgh pr merge\b/],
-  ["🟡", "联网下载", /\b(?:curl|wget|git clone|pip install|npm install|huggingface-cli|hf download)\b/],
+  ["🟡", "联网下载", /\b(?:curl|wget)\b(?![^\n]*\b(?:127\.0\.0\.1|localhost)\b)|\b(?:git clone|pip install|npm install|huggingface-cli|hf download)\b/],
 ];
 
 let fails = 0;
@@ -206,6 +208,8 @@ for (const id of ids) {
   if (overReq.length) warns.push(`和依赖组件有 ${overReq.length} 个同路径文件（卸载时谁留谁走要看清）：${overReq.slice(0, 3).join("、")}`);
 
   // 逐文件：ELF、shebang、残留路径
+  const elfGraph = new Map();                        // ELF 路径 → { exe, deps: 解析到本组件里的库路径 }
+  const vendor = new Map();
   const missing = new Map(), offPath = new Map(), foreign = [], badInterp = [], residue = [], badShebang = [], envShebang = [];
   let elfs = 0;
   for (const e of readTar(b.tar)) {
@@ -220,9 +224,13 @@ for (const id of ids) {
       if (info.interp && info.interp !== "/system/bin/linker64" && !has(rel(info.interp))) badInterp.push(`${e.name} → ${info.interp}`);
       const dirs = [...info.runpath.map((p) => rel(p.replace(/\$\{?ORIGIN\}?/g, PFX + dirOf(e.name)))),
         glibc ? "usr/glibc/lib" : "usr/lib", dirOf(e.name)].map((p) => path.posix.normalize(p.replace(/^\//, "")));
+      const node = { exe: !!info.interp, deps: [] };
+      elfGraph.set(e.name, node);
       for (const n of info.needed) {
         if (!glibc && ANDROID_LIBS.has(n)) continue;
-        if (dirs.some((d) => has(d + "/" + n))) continue;
+        const hit = dirs.find((d) => has(d + "/" + n));
+        if (hit) { if (b.names.has(hit + "/" + n)) node.deps.push(hit + "/" + n); continue; }
+        if (!glibc && VENDOR_LIBS.has(n)) { vendor.set(n, [...(vendor.get(n) || []), e.name]); continue; }
         (anywhere.has(n) ? offPath : missing).set(n, [...((anywhere.has(n) ? offPath : missing).get(n) || []), e.name]);
       }
     } else if (head[0] === 0x23 && head[1] === 0x21 && e.mode & 0o111) {
@@ -236,13 +244,23 @@ for (const id of ids) {
   oks.push(`${elfs} 个 ELF 检查过`);
   // 分轻重：bin 入口、库（lib 目录下的）坏了才拦；包里附带的其它程序、share 里的脚本坏了只提醒（多是上游打包的边角）
   const entry = new Set((r.bin || []).map((c) => "usr/bin/" + c));
-  const vital = (f) => entry.has(f) || /^usr\/(glibc\/)?lib(exec\/devkit)?\//.test(f) && !/^usr\/(glibc\/)?lib\/(python3|perl|ruby|node)/.test(f);
+  // 要紧的 ELF：从「入口命令、bin 目录外的可执行程序、lib 顶层的库」出发，沿 NEEDED 走得到的。
+  // 没人链接、只靠 dlopen 加载的插件（如 libreoffice 的 Qt6 / gstreamer 界面与媒体插件）缺库只提醒：用到那个功能才会坏
+  const isBin = (f) => /^usr\/(glibc\/)?bin\//.test(f);
+  const byName = new Map(b.entries.map((y) => [y.name, y]));
+  const resolve = (f) => { let x = f; for (let i = 0; i < 8; i++) { const en = byName.get(x); if (!en || en.type !== "2") break; x = path.posix.normalize(en.link.startsWith("/") ? rel(en.link) : path.posix.join(path.posix.dirname(x), en.link)); } return x; };
+  const roots = [...entry].map(resolve).filter((f) => elfGraph.has(f));
+  for (const [f, nd] of elfGraph) if ((nd.exe && !isBin(f)) || /^usr\/(glibc\/)?lib\/[^/]+$/.test(f)) roots.push(f);
+  const reach = new Set();
+  for (const q = [...roots]; q.length;) { const f = q.pop(); if (reach.has(f)) continue; reach.add(f); for (const d of elfGraph.get(resolve(f))?.deps || []) q.push(resolve(d)); }
+  const vital = (f) => reach.has(f) || entry.has(f);
   const split = (m) => { const hard = new Map(), soft = new Map(); for (const [n, by] of m) { const v = by.filter(vital); (v.length ? hard : soft).set(n, v.length ? v : by); } return [hard, soft]; };
   const [missHard, missSoft] = split(missing);
   const shHard = badShebang.filter((x) => vital(x.split(" → ")[0])), shSoft = badShebang.filter((x) => !vital(x.split(" → ")[0]));
   if (foreign.length) (foreign.some((f) => /^usr\/(bin|lib|glibc\/(bin|lib))\//.test(f)) ? errs : warns).push(`不是 arm64 的 ELF ${foreign.length} 个：${foreign.slice(0, 3).join("、")}`);
   if (badInterp.length) errs.push(`解释器（动态链接器）找不到：${badInterp.slice(0, 3).join("、")}`);
   if (missSoft.size) warns.push(`包里附带的程序有 ${missSoft.size} 个库找不到（不是入口，不拦）：` + [...missSoft].slice(0, 4).map(([n, by]) => `\`${n}\` ← ${by[0]}`).join("、"));
+  if (vendor.size) warns.push(`链了设备厂商的库（只有部分设备有，没有的设备上这部分用不了）：` + [...vendor].map(([n, by]) => `\`${n}\` ← ${by[0]}`).join("、"));
   if (missHard.size) errs.push(`链接的库哪里都找不到 ${missHard.size} 个：` + [...missHard].slice(0, 6).map(([n, by]) => `\`${n}\`（${by.length} 个文件要，如 ${by[0]}）`).join("、"));
   else oks.push(missSoft.size ? "入口命令和库要的库都找得到" : "每个 ELF 要的库都找得到");
   if (offPath.size) warns.push(`有库不在搜索路径上、但别处有同名文件（可能靠包装脚本设 LD_LIBRARY_PATH，真机要验）：` + [...offPath].slice(0, 4).map(([n, by]) => `\`${n}\` ← ${by[0]}（有 ${anywhere.get(n)}）`).join("、"));
