@@ -31,6 +31,7 @@
   "bin": ["office-convert"],
   "selftest": "office-convert --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "office",
   "license": "MPL-2.0 AND LGPL-3.0",
   "homepage": "https://www.libreoffice.org",
   "maintainers": ["greyoak111"],
