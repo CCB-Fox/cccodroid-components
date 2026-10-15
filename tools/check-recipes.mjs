@@ -4,7 +4,7 @@ import path from "node:path";
 import { recipes } from "./lib.mjs";
 
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
-  "fetch", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
+  "fetch", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
 const KINDS = new Set(["termux", "glibc"]);
 // fetch 不许从市场自己这里取东西：那等于绕开评审往里塞二进制（"不带自带二进制"这条就废了）。
 // 不光是 Release —— PR 里的提交（哪怕后来删了）也能经 raw.githubusercontent.com/<本仓库>/<提交>/… 取到，
@@ -12,7 +12,7 @@ const KINDS = new Set(["termux", "glibc"]);
 const SELF = /^https:\/\/(?:[a-z0-9-]+\.)*(?:github\.com|githubusercontent\.com)\/(?:repos\/)?greyoak111\/cccodroid-components(?:[/.?#]|$)/i;
 let bad = 0;
 const err = (r, m) => { console.log(`✗ ${r}: ${m}`); bad++; };
-const ids = new Set();
+const ids = new Set(), wanted = new Map();          // wanted：requires 了谁（循环完再看在不在）
 for (const r of recipes()) {
   const n = path.basename(r.dir);
   if (r.schema !== 1) err(n, "schema 必须是 1");
@@ -48,10 +48,21 @@ for (const r of recipes()) {
     if (!f.why) err(n, `fetch 要写 why：这是什么、为什么不能走 Termux 官方仓库: ${p}`);
     if (f.mode !== undefined && !/^[0-7]{3,4}$/.test(String(f.mode))) err(n, `fetch 的 mode 是八进制三位/四位: ${p}`);
   }
+  if (r.requires !== undefined) {
+    if (!Array.isArray(r.requires) || r.requires.some((d) => typeof d !== "string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d) || d === r.id)) err(n, "requires 是组件 id 的数组（不能写自己）");
+    else for (const d of r.requires) wanted.set(d, n);
+  }
+  // needs：gpu 可以写 "adreno" —— 只能用在高通骁龙上（走 /dev/kgsl-3d0），App 在别家 SoC 上直接不给装
+  for (const [k, v] of Object.entries(r.needs || {})) {
+    if (!["shizuku", "display", "gpu"].includes(k)) err(n, `needs 里不认识的键: ${k}`);
+    else if (k === "gpu" ? ![true, false, "adreno"].includes(v) : typeof v !== "boolean") err(n, `needs.${k} 的值不对（gpu 是 true / false / "adreno"，其余是 true / false）`);
+  }
   const sk = path.join(r.dir, "skill", "SKILL.md");
   if (!fs.existsSync(sk)) err(n, "缺 skill/SKILL.md（告诉 Claude 怎么用这个组件）");
   else if (!/^---\nname: [a-z0-9-]+\ndescription: .+\n---/m.test(fs.readFileSync(sk, "utf8"))) err(n, "SKILL.md 开头要有 name / description");
   console.log(`  ${n} ok?`);
 }
+// requires 了本仓库没有的组件：可能是预置组件（cccodroid 自己发的，比如 chromium），提醒一下、不算错
+for (const [d, by] of wanted) if (!ids.has(d)) console.log(`⚠ ${by} requires 了本仓库没有的组件 ${d}（预置组件？确认一下名字）`);
 if (bad) { console.log(`\n${bad} 个问题`); process.exit(1); }
 console.log("\n✓ 配方格式没问题");
