@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "openscad",
+  "kind": "termux",
+  "revision": 1,
+  "version": "2021.01",
+  "name": { "zh": "OpenSCAD（脚本建模）", "en": "OpenSCAD (script modelling)" },
+  "desc": {
+    "zh": "用代码建 3D 模型：写一段 .scad 脚本，导出 STL / OFF / AMF / CSG 或 2D 的 DXF / SVG，给 3D 打印或别的 CAD 用。带 MCAD 库（螺丝、齿轮、轴承、盒子）。这版是无头构建：没有图形界面，也不能导出 PNG。",
+    "en": "3D models from code: write a .scad script and export STL / OFF / AMF / CSG or 2D DXF / SVG for 3D printing or other CAD tools. Ships the MCAD library (screws, gears, bearings, boxes). Headless build: no GUI, and no PNG export."
+  },
+  "roots": ["openscad"],
+  "bin": ["openscad", "scad-export"],
+  "selftest": "scad-export --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "GPL-2.0-only",
+  "homepage": "https://openscad.org",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/scad-export": { "src": "bin/scad-export", "mode": "755" }
+  },
+  "notes": "版本：上游源码 2021.01（Termux 包 2021.01-7）。注意 openscad --version 打的是 2026.07.19 —— OpenSCAD 在没有 .git 的源码包里用构建日期当版本号，不是另一个上游版本，别当成版本不符。包装脚本 scad-export 存在的理由：包里的 MCAD 库装在 $PREFIX/share/openscad/libraries，但 openscad 自己不找那里，不设 OPENSCADPATH 时 use <MCAD/…> 一律失败。另外 Termux 这版是 -DNULLGL=ON 的无头构建，导 PNG 会段错误（139），包装脚本会提前拦住。"
+}
