@@ -13,6 +13,7 @@
   "bin": ["clvk-info"],
   "selftest": "clvk-info",
   "needs": { "shizuku": false, "display": false, "gpu": "adreno" },
+  "category": "gpu",
   "license": "Apache-2.0",
   "homepage": "https://github.com/kpet/clvk",
   "maintainers": ["greyoak111"],

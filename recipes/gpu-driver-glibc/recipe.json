@@ -12,6 +12,7 @@
   "bin": ["lgpu-run", "lgpu-info", "lgpu-cc"],
   "selftest": "lgpu-info",
   "needs": { "shizuku": false, "display": false, "gpu": "adreno" },
+  "category": "gpu",
   "license": "MIT",
   "homepage": "https://mesa3d.org",
   "maintainers": ["greyoak111"],

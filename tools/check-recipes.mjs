@@ -4,7 +4,9 @@ import path from "node:path";
 import { recipes } from "./lib.mjs";
 
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
-  "fetch", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
+  "fetch", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
+// 分类（App 扩展页的分类索引条按它分）：只认这几个，界面上有对应的译名
+const CATEGORIES = new Set(["dev", "office", "media", "science", "eda", "cad", "ai", "gpu", "net", "other"]);
 const KINDS = new Set(["termux", "glibc"]);
 // fetch 不许从市场自己这里取东西：那等于绕开评审往里塞二进制（"不带自带二进制"这条就废了）。
 // 不光是 Release —— PR 里的提交（哪怕后来删了）也能经 raw.githubusercontent.com/<本仓库>/<提交>/… 取到，
@@ -43,6 +45,7 @@ for (const r of recipes()) {
   if (!Array.isArray(r.bin) || !r.bin.length) err(n, "bin 至少一个入口命令");
   if (!r.selftest) err(n, "selftest 必填（装好后用它确认能跑）");
   if (!r.license) err(n, "license 必填（上游软件的许可证）");
+  if (!CATEGORIES.has(r.category)) err(n, `category 必填，只能是 ${[...CATEGORIES].join(" / ")}`);
   for (const k of Object.keys(r)) if (k !== "dir" && !KNOWN.has(k)) err(n, "不认识的字段: " + k);
   for (const [p, f] of Object.entries(r.files || {})) {
     if (!p.startsWith("usr/") || p.includes("..")) err(n, "files 只能放进 usr/ 下: " + p);

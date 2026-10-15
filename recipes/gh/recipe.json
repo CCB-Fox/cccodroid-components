@@ -12,6 +12,7 @@
   "bin": ["gh"],
   "selftest": "gh --version",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "dev",
   "license": "MIT",
   "homepage": "https://cli.github.com",
   "maintainers": ["greyoak111"]
