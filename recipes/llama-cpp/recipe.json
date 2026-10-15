@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "llama-cpp",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "llama.cpp（本地大模型推理）", "en": "llama.cpp (local LLM inference)" },
+  "desc": {
+    "zh": "本地跑大语言模型：命令行推理、量 tokens/s、起 OpenAI 兼容的本地 API 服务。CPU 和 Vulkan 后端（另有厂商 OpenCL，实测很慢）。模型不随组件走，要自己下。",
+    "en": "Run LLMs locally: command-line inference, tokens/s, and an OpenAI-compatible local API server. CPU and Vulkan backends (plus a vendor OpenCL one that is much slower in practice). Models are not bundled — bring your own GGUF."
+  },
+  "roots": ["llama-cpp", "llama-cpp-backend-vulkan", "llama-cpp-backend-opencl"],
+  "bin": ["llama-cli", "llama-server", "llama-bench", "llama-run"],
+  "selftest": "llama-run --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "MIT",
+  "homepage": "https://github.com/ggml-org/llama.cpp",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/llama-run": { "src": "bin/llama-run", "mode": "755" }
+  },
+  "notes": "CPU 推理不需要 GPU，所以不写 requires（needs.gpu 是 false）；Vulkan 走底座自带的 libvulkan + gpu-driver 提供的 Turnip，装了就是默认后端，OpenCL 是可选的一条路。llama-run 做三件实测出来的事：①默认线程数不是最优 —— 本机 8 核是 4 小核 2.016GHz + 3 中核 2.7456GHz + 1 大核 3.1872GHz，llama.cpp 默认开满线程会把活儿派到小核上，生成速度只有用 4 线程的一半（实测 10.3 vs 25.0 t/s），所以没写 -t 时补「比最慢那档快的核数」并用 stderr 说一句；②厂商 OpenCL 要把 /vendor/lib64 挂进 LD_LIBRARY_PATH 才加载得了（libggml-opencl.so 链接 libOpenCL.so，实测 dlopen 报 not found in namespace (default)）；③-m 给短名字会在模型目录里找 .gguf。另带 --devices / --models / --bench（三后端各跑一遍出对比表）。实测数据（Qwen2.5-0.5B Q4_K_M）：Vulkan -ngl 99 -t 4 → pp64 271~280 t/s、tg32 28.6~29.9；CPU -dev none -t 4 → 67~74 / 25~38；厂商 OpenCL -t 4 → 51~58 / 5~6（最慢，别用）。selftest 不需要模型。模型不随组件发布，skill 里写了「下模型前必须先告诉用户体积和来源、得到同意再下」。"
+}

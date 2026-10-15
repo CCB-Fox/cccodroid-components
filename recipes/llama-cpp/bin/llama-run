@@ -1,0 +1,233 @@
+#!{{PREFIX}}/bin/bash
+# llama-run — 在本机跑 llama.cpp（cccodroid 的 llama-cpp 组件）
+#
+#   llama-run --devices                 看有哪些后端/设备能用（含厂商 OpenCL）
+#   llama-run --models                  列出模型目录里的 .gguf
+#   llama-run -m <模型> -p "问题" -n 64  单轮推理
+#   llama-run --backend cpu|vulkan|opencl  换后端（默认 auto，本机 auto 会走 Vulkan）
+#   llama-run --bench -m <模型>         三个后端各跑一遍 tokens/s 出对比
+#   llama-run --selftest                自检（不需要模型）
+#
+# 为什么要有它（都是本机实测出来的）：
+#
+#   · **默认线程数不是最优**：本机 7 个核里只有 4 个是大核（cpu4~cpu7 2.7456GHz，
+#     cpu0~cpu3 2.016GHz）。llama.cpp 默认用满 7 个线程，实测生成速度只有用 4 个线程的
+#     一半左右（10.3 vs 25.0 t/s）。所以没写 -t 时本脚本补一个「大核个数」，并在
+#     stderr 上说明；自己写了 -t 就完全照你的来。
+#   · **厂商 OpenCL 要额外把库带上**：libggml-opencl.so 链接的是 libOpenCL.so，
+#     动态链接器在应用的名字空间里找不到它（实测 dlopen 报
+#     `library "libOpenCL.so" not found: needed by … in namespace (default)`），
+#     把 /vendor/lib64 加进 LD_LIBRARY_PATH 就能加载（那边只有 HAL 库和 libOpenCL.so，
+#     不会遮蔽我们的库）。--backend opencl / --devices 里自动处理。
+#   · **模型路径难记**：-m 给短名字（如 qwen2.5-0.5b）会在模型目录里找 .gguf，
+#     不用写全路径。
+#
+# 模型不随组件发布 —— 要下模型请先看清体积和来源，得到用户同意再下（见 SKILL.md）。
+#
+# 退出码：0 成功；2 用法不对；其余透传 llama.cpp 自己的。
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+LLAMA_CLI="$PREFIX/bin/llama-cli"
+LLAMA_BENCH="$PREFIX/bin/llama-bench"
+MODELS_DIRS=("${CCODROID_MODELS:-/sdcard/cccodroid/models}" "$HOME/models" "$PREFIX/var/models")
+VENDOR_LIB="/vendor/lib64"
+
+die() { echo "llama-run: $*" >&2; exit 2; }
+
+# 线程数默认值：**比最慢那一档快的核有几个**。
+# 本机是 4 小核 2.016GHz + 3 中核 2.7456GHz + 1 个大核 3.1872GHz，数出来是 4 ——
+# 正好是实测最快的那个配置（-t 4 生成 25.0 t/s，默认 7 线程只有 10.3 t/s：
+# 线程开满会把活儿派到小核上，反而更慢）。读不到频率就退回 4。
+big_cores() {
+  local f v min=0 n=0
+  local -a freqs=()
+  for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq; do
+    [ -r "$f" ] || continue
+    v="$(cat "$f" 2>/dev/null)" || continue
+    case "$v" in ''|*[!0-9]*) continue ;; esac
+    freqs+=("$v")
+    if [ "$min" -eq 0 ] || [ "$v" -lt "$min" ]; then min="$v"; fi
+  done
+  [ "${#freqs[@]}" -eq 0 ] && { echo 4; return; }
+  for v in "${freqs[@]}"; do
+    if [ "$v" -gt "$min" ]; then n=$((n + 1)); fi
+  done
+  if [ "$n" -gt 0 ]; then echo "$n"; else echo 4; fi
+}
+
+# 把 /vendor/lib64 加进库路径（只为 OpenCL 后端；那边不会遮蔽我们的库）
+with_vendor_lib() {
+  if [ -d "$VENDOR_LIB" ]; then
+    case ":${LD_LIBRARY_PATH:-}:" in
+      *":$VENDOR_LIB:"*) ;;
+      *) export LD_LIBRARY_PATH="$VENDOR_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
+    esac
+  fi
+}
+
+find_models() {
+  local d
+  for d in "${MODELS_DIRS[@]}"; do
+    [ -d "$d" ] || continue
+    find "$d" -maxdepth 2 -name '*.gguf' -type f 2>/dev/null
+  done
+}
+
+# -m/--model 给的是短名字就补全路径
+resolve_model() {
+  local want="$1" hit d
+  [ -f "$want" ] && { printf '%s\n' "$want"; return 0; }
+  case "$want" in
+    */*) return 1 ;;                       # 带路径还找不到就是不找不到
+  esac
+  while IFS= read -r hit; do
+    case "$(basename "$hit")" in
+      *"$want"*) printf '%s\n' "$hit"; return 0 ;;
+    esac
+  done < <(find_models)
+  return 1
+}
+
+selftest() {
+  local fail=0 out rc n big
+  echo "· 版本"
+  out="$("$LLAMA_CLI" --version 2>&1)"; rc=$?
+  if [ $rc -ne 0 ]; then echo "  ✗ llama-cli --version 失败（rc=$rc）"; fail=1
+  else echo "  ✓ $(printf '%s' "$out" | head -1)"; fi
+
+  echo "· 后端 / 设备（Vulkan 走底座和 gpu-driver 提供的 Turnip）"
+  with_vendor_lib
+  out="$(timeout 120 "$LLAMA_CLI" --list-devices 2>&1)"; rc=$?
+  if [ $rc -ne 0 ] || ! printf '%s' "$out" | grep -q 'Available devices'; then
+    echo "  ✗ --list-devices 不对（rc=$rc）"; printf '%s\n' "$out" | tail -3 | sed 's/^/    /'; fail=1
+  else
+    n=$(printf '%s' "$out" | grep -c '^  [A-Za-z]')
+    printf '%s\n' "$out" | grep '^  ' | sed 's/^/  ✓ /'
+    [ "$n" -ge 1 ] || { echo "  ✗ 一个设备都没列出来"; fail=1; }
+  fi
+
+  echo "· 厂商 OpenCL 库能找到（libggml-opencl.so 要它）"
+  if [ -r "$VENDOR_LIB/libOpenCL.so" ]; then
+    if LD_LIBRARY_PATH="$VENDOR_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+       python3 -I -c "import ctypes; ctypes.CDLL('$VENDOR_LIB/libOpenCL.so')" 2>/dev/null; then
+      echo "  ✓ $VENDOR_LIB/libOpenCL.so 能加载"
+    else
+      echo "  ✗ 厂商 OpenCL 库加载不了"; fail=1
+    fi
+  else
+    echo "  · 本机没有 $VENDOR_LIB/libOpenCL.so（OpenCL 后端用不了，CPU/Vulkan 不受影响）"
+  fi
+
+  echo "· 模型目录"
+  n=0
+  while IFS= read -r out; do n=$((n + 1)); done < <(find_models)
+  echo "  · 找到 $n 个 .gguf（目录：$(IFS=' '; echo "${MODELS_DIRS[*]}")）"
+
+  echo "· 默认线程数（没写 -t 时用它）"
+  big="$(big_cores)"
+  echo "  · 用 $big 个线程（比最慢那档快的核数）"
+
+  echo "· 模型不存在时要给出清楚的错"
+  out="$("$LLAMA_CLI" -m /nonexistent-model.gguf -p hi -n 1 </dev/null 2>&1)"; rc=$?
+  if [ $rc -eq 0 ]; then echo "  ✗ 不存在的模型竟然也返回 0"; fail=1
+  else echo "  ✓ 返回 $rc（llama.cpp 自己的错码）"; fi
+
+  echo "===== 总结 ===== $( [ $fail -eq 0 ] && echo '全部通过' || echo '有失败项' )"
+  return $fail
+}
+
+show_devices() { with_vendor_lib; exec "$LLAMA_CLI" --list-devices; }
+
+show_models() {
+  local f n=0
+  while IFS= read -r f; do
+    n=$((n + 1))
+    printf '%12s  %s\n' "$(du -h "$f" 2>/dev/null | cut -f1)" "$f"
+  done < <(find_models)
+  [ "$n" -eq 0 ] && echo "（没找到模型。放 .gguf 到 ${MODELS_DIRS[0]}，或设 CCODROID_MODELS；下模型前先跟用户确认体积和来源）"
+  return 0
+}
+
+# ---------- 参数处理 ----------
+[ $# -eq 0 ] && die "用法：llama-run --devices | --models | --bench | --selftest | [--backend cpu|vulkan|opencl] <llama-cli 的参数…>"
+case "$1" in
+  --selftest) selftest; exit $? ;;
+  --devices)  show_devices ;;
+  --models)   show_models; exit 0 ;;
+  --help|-h)  awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+esac
+
+declare -a args=()      # 最终给 llama-cli 的参数
+declare -a user_args=() # 用户原样给的（bench 模式用这份，不带我们补的后端/线程参数）
+backend="auto"
+bench=0
+saw_threads=0
+i=1
+while [ $i -le $# ]; do
+  a="${!i}"
+  case "$a" in
+    --backend)   i=$((i + 1)); [ $i -le $# ] || die "--backend 后面缺 cpu|vulkan|opencl"
+                 backend="${!i}" ;;
+    --backend=*) backend="${a#--backend=}" ;;
+    --bench)     bench=1 ;;
+    -m|--model)
+      i=$((i + 1)); [ $i -le $# ] || die "$a 后面缺模型"
+      if ! resolved="$(resolve_model "${!i}")"; then
+        echo "llama-run: 找不到模型「${!i}」。" >&2
+        echo "  找过这些目录：$(IFS=' '; echo "${MODELS_DIRS[*]}")" >&2
+        echo "  （下模型前先跟用户确认体积和来源，得到同意再下。）" >&2
+        exit 2
+      fi
+      args+=("$a" "$resolved"); user_args+=("$a" "$resolved") ;;
+    -m[!-]*)     if resolved="$(resolve_model "${a#-m}")"; then args+=("-m" "$resolved"); user_args+=("-m" "$resolved"); else args+=("$a"); user_args+=("$a"); fi ;;
+    --model=*)   v="${a#--model=}"
+                 if resolved="$(resolve_model "$v")"; then args+=("--model=$resolved"); user_args+=("--model=$resolved"); else args+=("$a"); user_args+=("$a"); fi ;;
+    -t|--threads|-t[0-9]*) saw_threads=1; args+=("$a"); user_args+=("$a") ;;
+    *)           args+=("$a"); user_args+=("$a") ;;
+  esac
+  i=$((i + 1))
+done
+case "$backend" in
+  auto|cpu|vulkan|opencl) ;;
+  *) die "--backend 只能是 cpu / vulkan / opencl / auto，给的是 $backend" ;;
+esac
+
+big="$(big_cores)"
+if [ "$saw_threads" -eq 0 ] && [ $bench -eq 0 ]; then
+  args+=("-t" "$big")
+  echo "llama-run: 没指定 -t，用 -t $big（本机比最慢那档快的核数）。实测线程开满会派到小核上，生成速度只有一半左右；要改就自己加 -t N。" >&2
+fi
+
+case "$backend" in
+  cpu)    args+=("-dev" "none") ;;
+  vulkan) args+=("-dev" "Vulkan0") ;;
+  opencl) with_vendor_lib; args+=("-dev" "GPUOpenCL") ;;
+esac
+
+if [ $bench -eq 1 ]; then
+  # --bench：三个后端各跑一遍 llama-bench，把结果拼成一张表
+  declare -a common=("${user_args[@]}")
+  printf '%-46s %10s %10s\n' "后端 / 设备" "pp t/s" "tg t/s"
+  run_one() {
+    local label="$1"; shift
+    local out pp tg
+    out="$("$@" 2>&1)"
+    # llama-bench 的表格行： | model | size | params | backend | ngl | dev | test | t/s |
+    # 取倒数第二段（最后一段是行尾的空段），再去掉 "± 误差"
+    pp="$(printf '%s' "$out" | grep -E '\| *pp[0-9]+ *\|' | head -1 | awk -F'|' '{print $(NF-1)}' | awk '{print $1}')"
+    tg="$(printf '%s' "$out" | grep -E '\| *tg[0-9]+ *\|' | head -1 | awk -F'|' '{print $(NF-1)}' | awk '{print $1}')"
+    printf '%-46s %10s %10s\n' "$label" "${pp:--}" "${tg:--}"
+  }
+  run_one "CPU   -dev none -t $big" "$LLAMA_BENCH" "${common[@]}" -dev none -t "$big"
+  run_one "Vulkan -ngl 99 -t $big" "$LLAMA_BENCH" "${common[@]}" -dev Vulkan0 -ngl 99 -t "$big"
+  if [ -r "$VENDOR_LIB/libOpenCL.so" ]; then
+    with_vendor_lib
+    run_one "OpenCL 厂商 Adreno 驱动" "$LLAMA_BENCH" "${common[@]}" -dev GPUOpenCL -ngl 99 -t "$big"
+  fi
+  exit 0
+fi
+
+exec "$LLAMA_CLI" "${args[@]}"
