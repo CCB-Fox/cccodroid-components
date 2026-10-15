@@ -32,5 +32,16 @@
         "checks": "installed from signed community index; refused before gpu-driver-glibc was installed; same-origin files already on device (placed 0, shared 10); clvk-info: OpenCL 3.0 CLVK on Turnip Adreno, vector add PASS (0/4096 wrong); removed cleanly, devkit base unchanged"
       }
     }
+  },
+  "gpu-driver": {
+    "26.2.5-r1": {
+      "13ba8abc3e53": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.11",
+        "checks": "tools/verify-device.mjs, installed alone (browser removed first): installed from signed index; placed 219, shared 2; skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS opencl=-; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }
