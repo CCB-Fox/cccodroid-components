@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!{{PREFIX}}/bin/python3
 # vcd2svg — 把 VCD 波形文件画成 SVG（cccodroid 的 iverilog 组件）
 #
 #   vcd2svg 输入.vcd [输出.svg] [--signals 名字…] [--max N]
