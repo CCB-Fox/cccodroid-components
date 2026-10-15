@@ -12,6 +12,7 @@
   "bin": ["yosys", "yosys-run"],
   "selftest": "yosys-run --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "eda",
   "license": "ISC",
   "homepage": "https://yosyshq.net/yosys/",
   "maintainers": ["greyoak111"],
