@@ -7,10 +7,10 @@
 ## 检查 / Checklist
 
 - [ ] `node tools/check-recipes.mjs` 通过 / passes
-- [ ] `ci-build.mjs --dry` 依赖都能解 / resolves
+- [ ] `ci-build.mjs --dry` 依赖都能解 / resolves（本地想先看审计：`node tools/audit.mjs --devkit ../cccodroid/devkit --only <id>`）
 - [ ] 读过 [组件编写规则](../.claude/skills/component-authoring/SKILL.md) / read the authoring rules
 - [ ] 描述与 skill 里的版本、能力以实际打进包的为准，没写没带的东西 / description and skill match what is actually packaged
-- [ ] 和已有组件共用了哪些包（没有就写「无」）/ packages shared with existing components:
+- [ ] 看过 CI 贴的审计报告（共用的包、缺的库、风险分级都在里面）/ read the audit report posted by CI
 - [ ] 第一次运行要下载的：skill 里写明大小与来源、先问用户 / first-run downloads are disclosed and need user consent
 - [ ] SKILL.md 不会让 Claude 读取或打印令牌、密码 / never reads or prints secrets
 - [ ] 对外发布、删除类操作写明先问用户 / asks before public or destructive actions
