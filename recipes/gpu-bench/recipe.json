@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "id": "gpu-bench",
+  "kind": "termux",
+  "revision": 1,
+  "name": {
+    "zh": "GPU 信息与跑分（clinfo / vkmark / clpeak）",
+    "en": "GPU info & benchmarks (clinfo / vkmark / clpeak)"
+  },
+  "desc": {
+    "zh": "看 GPU 信息和跑分：clinfo 列 OpenCL 设备、vkmark 跑 Vulkan 基准、clpeak 跑 OpenCL 峰值算力和带宽。都是离屏跑，不需要屏幕。带 gpu-bench 包装命令，挡住三个工具静默出错的情况。",
+    "en": "GPU info and benchmarks: clinfo lists OpenCL devices, vkmark runs Vulkan benchmarks, clpeak measures OpenCL peak compute and bandwidth. All off-screen, no display needed, with a gpu-bench wrapper that guards against silent wrong results."
+  },
+  "roots": ["clinfo", "vkmark", "clpeak"],
+  "repos": ["x11"],
+  "requires": ["gpu-driver"],
+  "needs": {
+    "shizuku": false,
+    "display": false,
+    "gpu": "adreno"
+  },
+  "bin": ["clinfo", "vkmark", "clpeak", "gpu-bench"],
+  "selftest": "gpu-bench --selftest",
+  "category": "gpu",
+  "license": "CC0-1.0 AND GPL-3.0-or-later AND GPL-2.0-or-later",
+  "homepage": "https://github.com/vkmark/vkmark",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/gpu-bench": {
+      "src": "bin/gpu-bench",
+      "mode": "755"
+    }
+  },
+  "notes": "三个上游工具，各自版本：clinfo 3.1.26.09.26、vkmark 2025.01-3、clpeak 3.0.1（配方不写 version，打包时按主包 clinfo 的版本号合成 3.1.26.09.26-r1）。repos 里加 x11 是因为 vkmark 和 xcb-util-wm 只在 Termux 的 x11 仓库。原定的 glmark2 没装：三个变体（glmark2/-egl/-es2）都是 X11 画布，链接 libX11，没有显示服务器时一律 Error: Could not initialize canvas，--off-screen 也不管用（真机实测），按待办清单「跑不了的工具不要放进组件」去掉。gpu-bench 包装脚本挡三件事（都有真机实测）：①clinfo 不挂厂商库时打印空/Number of platforms 0 且 rc=0；②clpeak 认不到平台会拿 CPU 后端顶上，输出和 GPU 跑分一样；③vkmark 场景名写错是 Warning + Score: 0 + rc=0。另外 vkmark -L/--list-devices 在这台设备上必挂（它建实例时带 VK_KHR_display，Turnip 一开这个扩展 vkEnumeratePhysicalDevices 就返回 -3），所以设备名从基准输出里取。实测（Adreno 730/725）：vkmark 320x240 默认 duration → cube 15000~29000、texture 6700~21000、clear 16000~30000、effect2d 5300~7500 FPS（同一场景两次能差一倍：降频 + 首帧管线编译）；clpeak → fp32 1.5~1.8 TFLOPS、fp16 2.4~3.5 TFLOPS、全局带宽 34~40 GB/s。数字受降频和 duration 影响，skill 里写了别跨 duration 比较。selftest 约 10 秒，真跑三个工具。"
+}

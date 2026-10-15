@@ -1,0 +1,228 @@
+#!{{PREFIX}}/bin/bash
+# gpu-bench — 看 GPU 信息、跑 GPU 分（cccodroid 的 gpu-bench 组件）
+#
+#   gpu-bench                   设备信息 + 默认跑分（vkmark 3 个场景 + clpeak fp32/fp16/带宽）
+#   gpu-bench info              只列设备（OpenCL 平台/设备、Vulkan 设备名）
+#   gpu-bench vulkan [场景…]    vkmark 跑分（场景默认 cube effect2d texture；--size 改分辨率）
+#   gpu-bench opencl [参数…]    clpeak 跑分（参数原样转给 clpeak；默认 fp32 + fp16 + 带宽）
+#   gpu-bench --list            vkmark 有哪些场景
+#   gpu-bench --selftest        自检（真跑一遍三个工具，约 10 秒；不装东西、不联网）
+#
+# 为什么要有它 —— 这三个工具在本机会**静默给出错的结果**，都是真机实测：
+#   · clinfo 不挂厂商库路径（/vendor/lib64/libOpenCL.so）时打印
+#     「Number of platforms 0」并返回 0 —— 看着像「这机器没有 OpenCL」；
+#   · clpeak 认不到 OpenCL 平台时会**拿 CPU 后端顶上**，输出长得跟 GPU 跑分一样；
+#   · vkmark 场景名写错打印 "Warning: Skipping benchmark with invalid scene name"，
+#     然后 **Score: 0、退出码 0**；参数写错（比如 glmark2 的 --frame-end）倒是会报错 rc=1；
+#   · vkmark 的 -L/--list-devices 在这台设备上**必挂**：它建实例时会带上 VK_KHR_display，
+#     而本机 Turnip 一开这个扩展，vkEnumeratePhysicalDevices 就返回 -3（实测，用
+#     VK_LOADER_DEBUG 定位的）。只有跑基准那条路会退到 VK_EXT_headless_surface 才没事，
+#     所以设备名从基准输出的 header 里取，脚本里不碰 -L。
+#   · glmark2（glmark2 / -egl / -es2 三个变体）都是 X11 画布，没有显示服务器跑不了
+#     （实测都是 "Could not initialize canvas"）—— 所以组件里没有它，见 SKILL.md。
+# 本脚本把上面这些挡在前面：库路径该挂的挂上、结论该核对的核对，再报给用户。
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+CLINFO="$PREFIX/bin/clinfo"
+VKMARK="$PREFIX/bin/vkmark"
+CLPEAK="$PREFIX/bin/clpeak"
+GPU_RUN="$PREFIX/bin/gpu-run"     # gpu-driver 组件提供（本组件 requires: gpu-driver）
+VENDOR_LIB="/vendor/lib64"
+VK_RESULT=""
+VK_ERR=""
+
+die() { echo "gpu-bench: $*" >&2; exit 2; }
+bad() { echo "gpu-bench: $*" >&2; exit 4; }
+
+for c in "$CLINFO" "$VKMARK" "$CLPEAK"; do
+  [ -x "$c" ] || die "找不到 $c（组件没装全？重新装一次 gpu-bench）"
+done
+
+# 跑一条 OpenCL 命令，走厂商驱动：
+#   gpu-driver 的 `gpu-run --opencl` 把厂商 libOpenCL.so 取到它自己的数据目录再挂
+#   LD_LIBRARY_PATH（不改 $PREFIX 里任何文件，实测过）；没有 gpu-run 时退回直接挂
+#   /vendor/lib64（那边只有 HAL 库和 libOpenCL.so，不会遮蔽我们的库）。
+ocl() {
+  if [ -x "$GPU_RUN" ]; then "$GPU_RUN" --opencl "$@"
+  else LD_LIBRARY_PATH="$VENDOR_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$@"
+  fi
+}
+
+# OpenCL 平台列表；输出里没有 Qualcomm/Adreno 就当没有 GPU（clinfo 的 rc 不可信）
+opencl_list() {
+  local out
+  out="$(ocl "$CLINFO" -l 2>&1)" || true
+  printf '%s\n' "$out"
+  printf '%s' "$out" | grep -qi 'Adreno\|QUALCOMM' || return 1
+}
+
+# vkmark 的场景名表（-l 不需要 Vulkan 实例，能跑）
+scene_names() { "$VKMARK" -l 2>/dev/null | sed -n 's/^\[Scene\][[:space:]]*//p'; }
+
+# 跑一个 vkmark 场景；成功返回 0 并把 "分数|FPS|帧时间|设备" 打进 $VK_RESULT，
+# 失败返回 1 并把原因打进 $VK_ERR（**不退出**：info / selftest 要能接着往下走）
+vk_run() {
+  local scene="$1" size="$2"; shift 2
+  local out rc score fps ft dev
+  VK_RESULT=""; VK_ERR=""
+  out="$("$VKMARK" -b "$scene" --size "$size" "$@" 2>&1)"; rc=$?
+  if [ $rc -ne 0 ]; then
+    VK_ERR="vkmark 跑 $scene 失败（rc=$rc）：$(printf '%s' "$out" | tail -1)"; return 1
+  fi
+  if printf '%s' "$out" | grep -q 'Warning: Skipping'; then
+    VK_ERR="vkmark 跳过了场景「$scene」（场景名不对？用 gpu-bench --list 看有哪些）"; return 1
+  fi
+  score="$(printf '%s' "$out" | sed -n 's/.*vkmark Score: *\([0-9.]*\).*/\1/p' | tail -1)"
+  fps="$(printf '%s' "$out" | sed -n 's/.*FPS: *\([0-9.]*\).*/\1/p' | tail -1)"
+  ft="$(printf '%s' "$out" | sed -n 's/.*FrameTime: *\([0-9.]*\).*/\1/p' | tail -1)"
+  dev="$(printf '%s' "$out" | sed -n 's/^ *Device Name: *//p' | head -1)"
+  if [ -z "$score" ]; then
+    VK_ERR="vkmark 没给出分数（这不正常，最后几行：$(printf '%s' "$out" | tail -2 | tr '\n' ' '))"; return 1
+  fi
+  case "$score" in 0|0.0|0.00)
+    VK_ERR="vkmark 给了 0 分 —— 等于没跑，别当结果用"; return 1 ;;
+  esac
+  VK_RESULT="$score|$fps|$ft|$dev"
+  return 0
+}
+
+cmd_info() {
+  local fail=0 out dev
+  echo "== OpenCL（厂商高通驱动）=="
+  if out="$(opencl_list)"; then
+    printf '%s\n' "$out" | sed 's/^/  /'
+  else
+    echo "  ✗ 拿不到 OpenCL 平台。多半是厂商库挂不上："
+    echo "    · 本机没有 /vendor/lib64/libOpenCL.so（非骁龙设备常见）；或"
+    echo "    · gpu-driver 组件没装（本组件的 gpu-run 由它提供）"
+    printf '%s\n' "$out" | sed 's/^/    /'
+    fail=1
+  fi
+  echo "== Vulkan（Turnip 开源驱动）=="
+  # clear:duration=0.2 —— vkmark 场景可以带参数（冒号后面）。默认一个场景要跑几秒，
+  # 这里只是确认「Vulkan 这条路通不通、设备是谁」，0.2 秒够了。
+  if vk_run clear:duration=0.2 64x64; then
+    IFS='|' read -r vk_score vk_fps vk_ft vk_dev <<< "$VK_RESULT"
+    echo "  $vk_dev（用 vkmark 的 clear 场景跑了一下，能出分数说明这条路是通的）"
+  else
+    echo "  ✗ $VK_ERR"; fail=1
+  fi
+  return $fail
+}
+
+cmd_vulkan() {
+  local size="320x240" scene
+  local -a scenes=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --size) [ $# -ge 2 ] || die "--size 后面缺 WxH（如 --size 800x600）"
+              size="$2"; shift 2 ;;
+      --size=*) size="${1#--size=}"; shift ;;
+      -*) die "gpu-bench vulkan 只认 --size，其余参数请直接写场景名" ;;
+      *) scenes+=("$1"); shift ;;
+    esac
+  done
+  [ ${#scenes[@]} -gt 0 ] || scenes=(cube effect2d texture)
+
+  # 先把场景名核对一遍（写错的话 vkmark 只给 Score: 0，见文件头）。
+  # 场景可以带参数（cube:duration=1），只核对冒号前面那段。
+  local have base; have="$(scene_names)"
+  for scene in "${scenes[@]}"; do
+    base="${scene%%:*}"
+    printf '%s\n' "$have" | grep -qx "$base" || \
+      die "没有场景「$base」。本机可用：$(printf '%s ' $have)"
+  done
+
+  printf '%-12s %-10s %12s %12s\n' "场景" "分辨率" "FPS" "帧时间 ms"
+  local dev=""
+  for scene in "${scenes[@]}"; do
+    vk_run "$scene" "$size" || bad "$VK_ERR"
+    IFS='|' read -r vk_score vk_fps vk_ft vk_dev <<< "$VK_RESULT"
+    dev="$vk_dev"
+    printf '%-12s %-10s %12s %12s\n' "$scene" "$size" "$vk_score" "$vk_ft"
+  done
+  [ -n "$dev" ] && echo "（设备：$dev）"
+}
+
+cmd_opencl() {
+  local -a args=("$@")
+  [ ${#args[@]} -gt 0 ] || args=(--single-precision-compute --half-precision-compute --global-memory-bandwidth)
+  local out rc
+  # --no-cpu 是故意的：clpeak 认不到 OpenCL 时会拿 CPU 顶上（见文件头），
+  # 用户想看的是 GPU 分，不给它这个机会。
+  out="$(ocl "$CLPEAK" --opencl --no-cpu "${args[@]}" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  if printf '%s' "$out" | grep -qi 'no platforms found\|clGetPlatformIDs'; then
+    bad "clpeak 没找到 OpenCL 平台（厂商库没挂上？跑一下 gpu-bench info 看）"
+  fi
+  [ $rc -eq 0 ] || bad "clpeak 返回 $rc"
+}
+
+selftest() {
+  local fail=0 out
+  echo "· 三个工具都在"
+  for c in clinfo vkmark clpeak; do
+    if "$PREFIX/bin/$c" --version >/dev/null 2>&1 || "$PREFIX/bin/$c" --help >/dev/null 2>&1; then
+      echo "  ✓ $c"
+    else
+      echo "  ✗ $c 跑不起来"; fail=1
+    fi
+  done
+
+  echo "· OpenCL 平台（经厂商驱动，clinfo 自己的退出码不可信）"
+  if out="$(opencl_list)"; then
+    printf '%s\n' "$out" | sed 's/^/  ✓ /'
+  else
+    echo "  ✗ 没有 OpenCL 平台（非骁龙设备 / 没装 gpu-driver 时会这样）"; fail=1
+  fi
+
+  echo "· clpeak 认得出 GPU 设备"
+  if out="$(ocl "$CLPEAK" --opencl --no-cpu --list-devices 2>&1)" && \
+     printf '%s' "$out" | grep -q 'Adreno'; then
+    # 只报设备名和几个关键属性，别把整条厂商驱动版本串（200 多字符）打出来
+    printf '%s\n' "$out" | grep -i adreno | head -1 | cut -c1-80 | sed 's/^ */  ✓ /'
+    props="$(printf '%s\n' "$out" | grep -i adreno | head -1 | grep -oE '[0-9]+ CUs?|[0-9.]+ GB|fp16' | tr '\n' ' ' | sed 's/ *$//')"
+    [ -n "$props" ] && echo "    （$props）"
+  else
+    echo "  ✗ clpeak 没列出 Adreno"; fail=1
+  fi
+
+  echo "· vkmark 真跑一个场景（clear，64x64）"
+  if vk_run clear 64x64; then
+    IFS='|' read -r vk_score vk_fps vk_ft vk_dev <<< "$VK_RESULT"
+    echo "  ✓ $vk_score FPS（$vk_dev）"
+  else
+    echo "  ✗ $VK_ERR"; fail=1
+  fi
+
+  echo "· 场景名写错必须当场拦下（vkmark 自己只会给 Score: 0、rc=0）"
+  out="$(cmd_vulkan no-such-scene 2>&1)"; local rc=$?
+  if [ $rc -eq 2 ] && ! printf '%s' "$out" | grep -q 'Score'; then
+    echo "  ✓ 被拦下（rc=2），没往下跑"
+  else
+    echo "  ✗ 没拦住（rc=$rc）"; fail=1
+  fi
+
+  echo "===== 总结 ===== $( [ $fail -eq 0 ] && echo '全部通过' || echo '有失败项' )"
+  return $fail
+}
+
+# ---------- 参数处理 ----------
+if [ $# -eq 0 ]; then
+  echo "（不带参数 = 设备信息 + 三个场景的默认跑分，约 30 秒；"
+  echo "  只想看设备用 gpu-bench info，想快点就在场景后面加 :duration=1.5）"
+  cmd_info && cmd_vulkan
+  exit $?
+fi
+case "$1" in
+  --selftest) selftest; exit $? ;;
+  info)       cmd_info; exit $? ;;
+  vulkan)     shift; cmd_vulkan "$@" ;;
+  opencl)     shift; cmd_opencl "$@" ;;
+  --list|-l)  scene_names; exit 0 ;;
+  --help|-h)  awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+  *)          die "不认识「$1」。用法：gpu-bench [info|vulkan|opencl|--list|--selftest]" ;;
+esac
