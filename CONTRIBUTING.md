@@ -14,7 +14,7 @@
 4. 开 PR。CI 会检查格式并解一遍依赖；合并后自动打包、出签名索引。
 5. 真机验证：在 cccodroid 的终端里跑 `node tools/verify-device.mjs <id> --app "cccodroid <版本>" --by <你的 GitHub 用户名>`，
    全过后把它打印的记录另开一个 PR 加进 `verified.json`。
-   维护者换底座后跑 `verify-device.mjs --pending`：只验没法自动继承的那些（见 [docs/recipe.md](docs/recipe.md)「真机验证」）。
+   维护者换底座后跑 `verify-device.mjs --pending --pr`（记录自动开 PR）：只验没法自动继承的那些（见 [docs/recipe.md](docs/recipe.md)「真机验证」）。
 
 不收：
 

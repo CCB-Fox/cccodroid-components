@@ -2,7 +2,9 @@
 //
 // 在装了 cccodroid 的设备上、cccodroid 的终端里跑（走 App 自己的网关装卸，和用户点按钮是同一条路）：
 //   node verify-device.mjs <组件 id> --app "cccodroid 0.1.11" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]
-//   node verify-device.mjs --pending --app … --by … [--out 结果.txt]
+//   node verify-device.mjs --pending --app … --by … [--out 结果.txt] [--pr]
+//     --pr：跑完直接把通过的记录并进 verified.json、开 PR（用 gh，要已登录且对市场仓库有写权限；
+//     没权限就照旧打印，手动提）。不用 clone 仓库，走 GitHub API。
 //     批量：索引里当前工具包有构建、还没验证（直接验或继承都算验过）的组件，按依赖顺序挨个验。
 //     全部跑完打印一份合并好的记录（只含通过的），没通过的列在最后。开着屏幕等它跑完即可。
 //
@@ -22,7 +24,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
 const flag = (k) => { const i = argv.indexOf(k); return i >= 0 ? (argv.splice(i, 1), true) : false; };
-const APP = opt("--app"), BY = opt("--by") || "", OUT = opt("--out"), KEEP = flag("--keep"), PENDING = flag("--pending");
+const APP = opt("--app"), BY = opt("--by") || "", OUT = opt("--out"), KEEP = flag("--keep"), PENDING = flag("--pending"), PR = flag("--pr");
 const ID0 = argv[0];
 if (PENDING ? ID0 : !ID0 || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(ID0)) {
   console.log("用法：node verify-device.mjs <组件 id> --app \"cccodroid <版本>\" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]");
@@ -233,4 +235,28 @@ if (Object.keys(records).length) {
   log(JSON.stringify(records, null, 2));
   if (!APP || !BY) log("\n⚠ --app / --by 没填全，提交前把占位的地方改掉");
 }
+if (PR && Object.keys(records).length) {
+  if (!APP || !BY) log("\n⚠ --pr 要 --app 和 --by 都填上，没开 PR");
+  else try { log("\n已开 PR：" + openPr(records, failed)); }
+  catch (e) { log(`\n✗ 开 PR 没成功（${String(e.message).split("\n")[0]}）：把上面的记录手动并进 verified.json 提 PR`); }
+}
 if (failed.length) { log(`\n✗ 没通过 ${failed.length} 个（别写记录）：`); for (const f of failed) log("  " + f); process.exit(1); }
+
+// 记录并进 verified.json → 新分支 → PR。全程 GitHub API（gh api），不 clone
+function openPr(recs, failed) {
+  const REPO = "greyoak111/cccodroid-components";
+  const gh = (...a) => execFileSync("gh", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const head = gh("api", `repos/${REPO}/git/ref/heads/main`, "--jq", ".object.sha");
+  const cur = JSON.parse(gh("api", `repos/${REPO}/contents/verified.json?ref=main`));
+  const v = merge(JSON.parse(Buffer.from(cur.content, "base64").toString("utf8")), recs);
+  const ids = Object.keys(recs);
+  const branch = `verify/${new Date().toISOString().slice(0, 10)}-${ids.join("-").slice(0, 40)}-${Date.now().toString(36)}`;
+  gh("api", "-X", "POST", `repos/${REPO}/git/refs`, "-f", `ref=refs/heads/${branch}`, "-f", `sha=${head}`);
+  const msg = `真机验证：${ids.join("、")}（${APP}）`;
+  gh("api", "-X", "PUT", `repos/${REPO}/contents/verified.json`, "-f", `message=${msg}`, "-f", `branch=${branch}`, "-f", `sha=${cur.sha}`,
+    "-f", `content=${Buffer.from(JSON.stringify(v, null, 2) + "\n").toString("base64")}`);
+  const body = [`verify-device.mjs --pending 跑出来的记录（设备 ${prop("ro.product.manufacturer")} ${prop("ro.product.model")}，${APP}，by ${BY}）。`, "",
+    "通过：", ...ids.map((id) => `- ${id} ${Object.keys(recs[id]).join(", ")}`),
+    ...(failed.length ? ["", "没通过（没写记录）：", ...failed.map((f) => "- " + f)] : [])].join("\n");
+  return gh("pr", "create", "-R", REPO, "--head", branch, "--base", "main", "--title", msg, "--body", body);
+}
