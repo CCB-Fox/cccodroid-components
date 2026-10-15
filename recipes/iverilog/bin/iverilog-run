@@ -24,6 +24,9 @@
 #   · vvp 用 `-n` 跑（Icarus 自己的选项：`$stop` 当成 `$finish`），
 #     这样 testbench 里的 $stop 不会停在交互提示符上等人敲回车；
 #   · `+xxx` 这类 plusarg 交给仿真程序（vvp），不丢给编译器；
+#   · 带参数的选项（`-s top` / `-D DEBUG` / `-I inc` / `-y lib` …）**连参数一起认**，
+#     参数不会被当成源文件（不认的话 `-s tb -g2012 tb.v` 里的 `tb` 一变成源文件，
+#     `-g2012` 就被误判成「写在源文件后面」而退出 —— 实测过）；
 #   · 选项写在源文件后面会被 iverilog 当成给仿真的 plusarg —— 本脚本会拦下来并说明。
 #
 # 退出码：0 跑完且输出里没有 ERROR:/FATAL:；1 仿真里 $fatal 等 vvp 的错；
@@ -157,6 +160,35 @@ V
     echo "  ✗ plusarg 没传到（rc=$rc）"; tail -3 "$d/pa.log" | sed 's/^/    /'; fail=1
   fi
 
+  echo "· 带参数的选项（-s top）的参数不能被当成源文件"
+  cat > "$d/tworoot.v" <<'V'
+module tb;
+  logic [3:0] q;
+  always_comb q = 4'd7;          // always_comb/logic 要 -g2012 才认
+  initial begin
+    #1 $display("TOP-TB q=%0d", q);
+    $finish;
+  end
+endmodule
+module other;
+  initial $display("TOP-OTHER 不该跑到");
+endmodule
+V
+  ( cd "$d" && timeout 30 "$SELF" -s tb -g2012 tworoot.v > two.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 0 ] && grep -q 'TOP-TB q=7' "$d/two.log" && ! grep -q 'TOP-OTHER' "$d/two.log"; then
+    echo "  ✓ -s 的参数当成了顶层模块名（other 没被 elaborate），-g2012 也没被误判成「写在源文件后面」"
+  else
+    echo "  ✗ -s 那条不对（rc=$rc）"; tail -3 "$d/two.log" | sed 's/^/    /'; fail=1
+  fi
+  ( cd "$d" && timeout 30 "$SELF" tworoot.v -s tb > two2.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 2 ] && grep -q '写在源文件后面' "$d/two2.log"; then
+    echo "  ✓ 反过来写（源文件在前）照旧拦下（rc=2），没吞掉参数就放过去"
+  else
+    echo "  ✗ 源文件在前那条没拦下（rc=$rc）"; tail -3 "$d/two2.log" | sed 's/^/    /'; fail=1
+  fi
+
   echo "· \$readmemh 打不开文件（vvp 返回 0！）必须被抓出来"
   cat > "$d/rom.v" <<'V'
 module tb;
@@ -218,6 +250,17 @@ while [ $i -le $# ]; do
     -o)          i=$((i + 1)); [ $i -le $# ] || die "-o 后面缺文件名"
                  out_vvp="${!i}" ;;
     -o*)         out_vvp="${a#-o}" ;;
+    # iverilog 里「后面跟一个参数」的那批选项（man 的 OPTIONS 一节逐个核对过，
+    # 13.0 版）：-B -c -f -D -P -p -d -I -L -l -M -m -N -s -T -t -W -y -Y。
+    # 分开写时必须把它后面那个 token 一起吞掉 —— 不吞的话 `-s tb` 里的 tb 会被
+    # 当成源文件（saw_source=1），后面真正的选项就被误判成「写在源文件后面」而退出。
+    # 连写的写法（-DFOO / -Iinc / -y lib…）本来就是**一个** token，落到下面的 -* 分支。
+    -B|-c|-f|-D|-P|-p|-d|-I|-L|-l|-M|-m|-N|-s|-T|-t|-W|-y|-Y)
+      [ $saw_source -eq 0 ] || late_opt="$late_opt $a"
+      args+=("$a")
+      i=$((i + 1)); [ $i -le $# ] || die "$a 后面缺参数（iverilog 的这个选项要跟一个参数）"
+      args+=("${!i}")
+      ;;
     -*)
       # iverilog 的规矩：选项必须写在源文件**前面**。写在后面会被当成 plusarg
       # 原样丢给仿真程序（实测 `iverilog tb.v -o x.vvp` 报的是 "-o: No such file or directory"）。

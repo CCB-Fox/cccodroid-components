@@ -31,14 +31,14 @@ iverilog-run <testbench.v> [dut.v …] [iverilog 自己的参数…]
 ```sh
 iverilog-run --timeout 600 tb.v dut.v     # 仿真确实很长时放宽超时
 iverilog-run --no-scan tb.v               # 本来就要打印以 ERROR: 开头的行时，关掉扫描
-iverilog-run --selftest                   # 自检（8 项，约 4 秒）
+iverilog-run --selftest                   # 自检（9 项，约 4 秒）
 ```
 
 ## 先自检
 
 ```sh
-iverilog-run --selftest     # 编译+跑、VCD、编译报错挡住、超时挡住、$stop、plusarg、$readmemh、--no-scan
-vcd2svg --selftest          # 画波形那条
+iverilog-run --selftest     # 编译+跑、VCD、编译报错挡住、超时挡住、$stop、plusarg、带参数的选项、$readmemh、--no-scan
+vcd2svg --selftest          # 画波形那条（VCD 解析、出图、XML 转义）
 ```
 
 ## 基本用法
@@ -92,6 +92,11 @@ iverilog-run tb.v counter.v
 - **信号没声明就直接用是错误**（Icarus 13 不再给隐式 wire）：`assign a = b;` 里 `b` 没声明会
   报 `Unable to bind wire/reg/memory 'b'`。补声明。
 - **宏和 include**：`iverilog-run -DFAST -Iincdir tb.v`（实测 `-DFAST` 能选中 `` `ifdef FAST ``）。
+  带参数的选项**分开写也行**（`-D FAST` / `-I incdir` / `-s top` / `-y libdir` …… man 的 OPTIONS
+  一节里跟参数的那批：`-B -c -f -D -P -p -d -I -L -l -M -m -N -s -T -t -W -y -Y`），
+  `iverilog-run` 会把参数一起吞掉，不会当成源文件。
+- **顶层模块用 `-s` 指定**：文件里有多个没被实例化的模块时，不写 `-s` 会被**全部**当顶层
+  一起 elaborate（不该跑的 initial 也会跑）。`iverilog-run -s tb -g2012 tb.v` 只跑 `tb`。
 - **plusarg**：`iverilog-run tb.v +N=42` → testbench 里 `$value$plusargs("N=%d", n)` 收到 42；
   `$test$plusargs("FAST")` 同理。**plusarg 是给仿真程序的**，`iverilog-run` 会自动转发给 vvp。
 

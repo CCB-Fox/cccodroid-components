@@ -12,7 +12,7 @@
 # 信号名按 VCD 里的层次拼（`tb.dut.q`），重的名字不会混。
 #
 # 退出码：0 画好了；1 输入有问题；2 用法不对。
-import sys, os, re
+import sys, os, re, html
 
 PROG = "vcd2svg"
 
@@ -158,7 +158,10 @@ def render(sigs, changes, tmax, out, prec_s=None):
 
     for i, s in enumerate(sigs):
         y0 = 40 + i * RH
-        o.append(f'<text x="{L-8}" y="{y0+RH/2+4:.0f}" font-size="12" text-anchor="end" fill="#222">{s["name"]}</text>')
+        # 信号名要转义后再进 SVG：Verilog 的转义标识符能带 & < > 这些字符
+        # （`\a&b ` 是合法的），直接拼进 XML 会让整个 SVG 变成打不开的坏文件。
+        o.append(f'<text x="{L-8}" y="{y0+RH/2+4:.0f}" font-size="12" text-anchor="end" fill="#222">'
+                 f'{html.escape(str(s["name"]))}</text>')
         seq = changes.get(s["code"], [])
         if not seq:
             seq = [(0, "x" * s["width"])]
@@ -186,7 +189,7 @@ def render(sigs, changes, tmax, out, prec_s=None):
         for bx, by, bw, bh, txt, known in boxes:
             if bw > 14:
                 o.append(f'<text x="{bx+bw/2:.1f}" y="{by+bh/2+4:.1f}" font-size="11" text-anchor="middle" '
-                         f'fill="{"#123" if known else "#b33"}">{txt}</text>')
+                         f'fill="{"#123" if known else "#b33"}">{html.escape(txt)}</text>')
     o.append("</svg>")
     with open(out, "w") as fh:
         fh.write("\n".join(o) + "\n")
@@ -253,11 +256,13 @@ def _selftest_in(tmp):
 $scope module tb $end
 $var wire 1 ! clk $end
 $var wire 4 " q [3:0] $end
+$var wire 1 # a&b $end
 $upscope $end
 $enddefinitions $end
 $dumpvars
 0!
 b0000 "
+0#
 #5
 1!
 #10
@@ -265,6 +270,7 @@ b0000 "
 b0001 "
 #15
 1!
+1#
 #20
 0!
 b0010 "
@@ -275,8 +281,8 @@ $end
 """)
     svg = os.path.join(tmp, "t.svg")
     sigs, changes, tmax, prec_s = parse_vcd(vcd)
-    if len(sigs) != 2 or tmax != 30:
-        return die(f"解析不对：{len(sigs)} 个信号、tmax={tmax}（期望 2 / 30）")
+    if len(sigs) != 3 or tmax != 30:
+        return die(f"解析不对：{len(sigs)} 个信号、tmax={tmax}（期望 3 / 30）")
     if changes["!"][0] != (0, "0") or changes['"'][1] != (10, "0001"):
         return die(f"变化没解析对：{changes}")
     if prec_s != 1e-9:
@@ -288,8 +294,20 @@ $end
             return die(f"生成的 SVG 里缺 {must}")
     if not re.search(r'stroke="#1a6fd4"', body):
         return die("没画出波形线")
-    print(f"✓ VCD 解析：2 个信号、timescale 1ns、t 到 {tmax}，clk 有 3 个上升沿")
+    # 名字里带 & 的信号必须被转义成 &amp;，否则 SVG 是坏 XML（Verilog 的转义标识符
+    # 允许这些字符：`\a&b ` 合法，$var 里就长这样）
+    if "a&amp;b" not in body:
+        return die("带 & 的信号名没被转义（SVG 会变成坏 XML）")
+    if "a&b" in body.replace("a&amp;b", ""):
+        return die("带 & 的信号名被原样写进 SVG 了")
+    import xml.etree.ElementTree as ET
+    try:
+        ET.fromstring(body)
+    except ET.ParseError as e:
+        return die(f"生成的 SVG 不是合法 XML：{e}")
+    print(f"✓ VCD 解析：3 个信号、timescale 1ns、t 到 {tmax}，clk 有 3 个上升沿")
     print(f"✓ SVG 生成：{len(body)} 字节，含波形线和数值块")
+    print("✓ XML 转义：信号名 a&b 写成了 a&amp;b，整个 SVG 能被 XML 解析器读进去")
     print("===== 总结 ===== 全部通过")
     return 0
 
