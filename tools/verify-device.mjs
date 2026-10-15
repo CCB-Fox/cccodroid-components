@@ -2,6 +2,9 @@
 //
 // 在装了 cccodroid 的设备上、cccodroid 的终端里跑（走 App 自己的网关装卸，和用户点按钮是同一条路）：
 //   node verify-device.mjs <组件 id> --app "cccodroid 0.1.11" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]
+//   node verify-device.mjs --pending --app … --by … [--out 结果.txt]
+//     批量：索引里当前工具包有构建、还没验证（直接验或继承都算验过）的组件，按依赖顺序挨个验。
+//     全部跑完打印一份合并好的记录（只含通过的），没通过的列在最后。开着屏幕等它跑完即可。
 //
 // 做的事：
 //   1. 核对工具包本体（.devkit-manifest）当前状态，作为基准
@@ -19,10 +22,11 @@ import { execFileSync, spawnSync } from "node:child_process";
 const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
 const flag = (k) => { const i = argv.indexOf(k); return i >= 0 ? (argv.splice(i, 1), true) : false; };
-const APP = opt("--app"), BY = opt("--by") || "", OUT = opt("--out"), KEEP = flag("--keep");
-const ID = argv[0];
-if (!ID || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(ID)) {
+const APP = opt("--app"), BY = opt("--by") || "", OUT = opt("--out"), KEEP = flag("--keep"), PENDING = flag("--pending");
+const ID0 = argv[0];
+if (PENDING ? ID0 : !ID0 || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(ID0)) {
   console.log("用法：node verify-device.mjs <组件 id> --app \"cccodroid <版本>\" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]");
+  console.log("　　　node verify-device.mjs --pending --app \"cccodroid <版本>\" --by <GitHub 用户名> [--out 结果.txt]");
   process.exit(2);
 }
 
@@ -46,7 +50,7 @@ const rec = (id) => { try { return JSON.parse(fs.readFileSync(path.join(COMP, id
 const list = async (refresh) => api("/api/components" + (refresh ? "?refresh=1" : ""));
 const item = async (id) => (await list()).items.find((x) => x.id === id);
 
-const checks = [], problems = [];
+let checks = [], problems = [];
 const ok = (c, m) => { log(`${c ? "  ✓" : "  ✗"} ${m}`); (c ? checks : problems).push(m); return c; };
 
 async function install(id) {
@@ -84,12 +88,15 @@ const sh = (cmd, timeout = 300000) => {
 };
 const prop = (k) => { try { return execFileSync("/system/bin/getprop", [k], { encoding: "utf8" }).trim(); } catch { return ""; } };
 
-// ── 开始 ──
+// 验一个组件：返回 { record }（全过）或 { fail: 原因 }
+async function verifyOne(ID) {
+checks = []; problems = [];
+const fail = (m) => { log(m); return { fail: m.replace(/^✗ /, "") }; };
 const ix = await list(true);
 if (ix.indexError) log(`⚠ 索引有错：${ix.indexError}`);
 let c0 = ix.items.find((x) => x.id === ID);
-if (!c0) { log(`✗ 索引里没有 ${ID}`); process.exit(1); }
-if (!c0.available) { log(`✗ ${ID} 没有适配当前工具包的构建（工具包 ${ix.devkit}）`); process.exit(1); }
+if (!c0) { return fail(`✗ 索引里没有 ${ID}`); }
+if (!c0.available) { return fail(`✗ ${ID} 没有适配当前工具包的构建（工具包 ${ix.devkit}）`); }
 const base12 = ix.devkit;
 log(`组件 ${ID} ${c0.version}　工具包 ${base12}　来源 ${c0.source}${c0.verified ? "（已有验证记录）" : ""}`);
 
@@ -98,10 +105,10 @@ log(b0 ? `工具包本体：${b0.total} 条，开始时有 ${b0.bad.size} 条和
 
 const wasInstalled = !!c0.installedVersion;
 if (wasInstalled) {
-  if ((c0.usedBy || []).length) { log(`✗ ${(c0.usedBy).map((d) => d.id).join("、")} 依赖它，先卸掉那些再验证`); process.exit(1); }
+  if ((c0.usedBy || []).length) { return fail(`✗ ${(c0.usedBy).map((d) => d.id).join("、")} 依赖它，先卸掉那些再验证`); }
   log(`\n⓪ 已经装着 ${c0.installedVersion}，先卸掉`);
   const r = await remove(ID);
-  if (!r.ok) { log(`✗ 卸不掉：${r.message}`); process.exit(1); }
+  if (!r.ok) { return fail(`✗ 卸不掉：${r.message}`); }
 }
 
 const depsAdded = [];
@@ -109,7 +116,7 @@ for (const d of c0.requires || []) {
   if (d.ok) continue;
   log(`\n· 先装依赖 ${d.id}`);
   const r = await install(d.id);
-  if (!ok(r.ok, `依赖 ${d.id} 装好${r.ok ? "" : "：" + r.message}`)) process.exit(1);
+  if (!ok(r.ok, `依赖 ${d.id} 装好${r.ok ? "" : "：" + r.message}`)) return fail(`依赖 ${d.id} 装不上`);
   depsAdded.push(d.id);
 }
 
@@ -127,7 +134,7 @@ if (ir.ok) {
 
 let st = null;
 if (ir.ok) {
-  const self = (await item(ID)).selftest || await selftestFromIndex();
+  const self = (await item(ID)).selftest || await selftestFromIndex(ID, base12);
   log(`\n② selftest：${self || "（索引里没有）"}`);
   if (self) {
     st = sh(self);
@@ -139,7 +146,7 @@ if (ir.ok) {
   } else ok(false, "没有 selftest 可跑");
 }
 // 旧版 App 的组件列表里没有 selftest：去索引里找当前工具包那份构建的（社区、预置都看）
-async function selftestFromIndex() {
+async function selftestFromIndex(ID, base12) {
   for (const u of ["https://github.com/greyoak111/cccodroid-components/releases/download/index/components.json",
     "https://github.com/greyoak111/cccodroid/releases/download/components/components.json"]) {
     try {
@@ -176,7 +183,7 @@ if (wasInstalled && !KEEP) {
 
 // ── 记录 ──
 log(`\n${problems.length ? `✗ ${problems.length} 项没过，别写验证记录` : "✓ 全过"}（${checks.length} 项通过）`);
-if (problems.length) process.exit(1);
+if (problems.length) return { fail: problems.join("；") };
 const sdk = prop("ro.build.version.release");
 const record = {
   [ID]: { [c0.version]: { [base12]: {
@@ -195,6 +202,35 @@ const record = {
     by: BY || "（GitHub 用户名，用 --by 补上）",
   } } },
 };
-log("\n下面这段并进 verified.json（同一组件已有别的版本就合并到同一层），提 PR：\n");
-log(JSON.stringify(record, null, 2));
-if (!APP || !BY) log("\n⚠ --app / --by 没填全，提交前把占位的地方改掉");
+return { record };
+}
+
+// 合并记录：{ id: { 版本: { 底座: … } } } 逐层并
+const merge = (a, b) => { for (const [k, v] of Object.entries(b)) a[k] = v && typeof v === "object" && !v.date && a[k] ? merge(a[k], v) : v; return a; };
+let records = {};
+const failed = [];
+if (!PENDING) {
+  const r = await verifyOne(ID0);
+  if (r.fail) process.exit(1);
+  records = r.record;
+} else {
+  const ix = await list(true);
+  const todo = ix.items.filter((c) => c.available && !c.verified && c.source !== "preset").map((c) => c.id);
+  // 依赖排在前面：被依赖的先验，后面装依赖时用的就是刚验过的
+  const byId = new Map(ix.items.map((c) => [c.id, c])), order = [], seen = new Set();
+  const visit = (id) => { if (seen.has(id)) return; seen.add(id); for (const d of byId.get(id)?.requires || []) if (todo.includes(d.id)) visit(d.id); order.push(id); };
+  todo.forEach(visit);
+  log(`待验证 ${order.length} 个：${order.join("、") || "无"}`);
+  for (const [i, id] of order.entries()) {
+    log(`\n━━━━ [${i + 1}/${order.length}] ${id} ━━━━`);
+    let r;
+    try { r = await verifyOne(id); } catch (e) { r = { fail: "脚本出错：" + e.message }; }
+    if (r.record) merge(records, r.record); else failed.push(`${id}：${r.fail}`);
+  }
+}
+if (Object.keys(records).length) {
+  log("\n下面这段并进 verified.json（同一组件已有别的版本就合并到同一层），提 PR：\n");
+  log(JSON.stringify(records, null, 2));
+  if (!APP || !BY) log("\n⚠ --app / --by 没填全，提交前把占位的地方改掉");
+}
+if (failed.length) { log(`\n✗ 没通过 ${failed.length} 个（别写记录）：`); for (const f of failed) log("  " + f); process.exit(1); }
