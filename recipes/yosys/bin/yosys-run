@@ -1,0 +1,355 @@
+#!{{PREFIX}}/bin/bash
+# yosys-run — 按本机能用的方式跑 yosys（cccodroid 的 yosys 组件）
+#
+#   yosys-run <yosys 的参数…>      和 yosys 一样的用法：-p / -s / 位置上的脚本文件
+#   yosys-run --selftest
+#   yosys-run --why                只把下面这个坑讲一遍
+#
+# 为什么非要有它（真机实测，Yosys 0.70）：
+#
+#   **`synth`（不带 -noabc）会永远卡住** —— 没有报错、没有超时、一个字都不说：
+#     · yosys 调 yosys-abc 时把脚本从管道喂过去，喂完**不关管道的写端**
+#       （运行时翻 /proc/<yosys>/fd，能看到它一直攥着那个写端 pipe）；
+#     · ABC 读完脚本后停在交互提示符 `abc 07> ` 上等下一条命令 —— 它既没等到 EOF、
+#       也没等到 quit，就这么等着；
+#     · 于是两边互等，谁都不动。
+#   不是 seccomp 的事：`env -u LD_PRELOAD` 和 `enosys-run` 都试过，一样卡。
+#   也不是能用 -run 绕过去的：「yosys -p "help synth"」打出来的流程里，
+#   abc 夹在 fine 段**内部**（opt -fast / abc / opt -fast），没有独立标签可切。
+#
+# 这个脚本做三件事：
+#   1. 脚本里写 `abc ...` 时，自动补成 `abc -exe <fifo 包装>`。那个包装把脚本逐行
+#      转发给真正的 yosys-abc，并在 yosys 的哨兵 YOSYS_ABC_DONE 之后补一个 `quit`，
+#      ABC 于是正常退出（实测 rc=0，而且 ABC 真会优化：4 位计数器从 $_AND_/$_XOR_
+#      变成 $_NAND_/$_XNOR_）。
+#   2. 脚本里出现不带 -noabc 的 `synth`（或命令行用了 -S / --synth）时**当场停下**，
+#      把上面的原因和两条出路讲清楚 —— 与其陪着一起卡死，不如立刻说清楚。
+#   3. --selftest：综合一个 5 行的模块，核对 stat、写网表、走一遍 ABC、再做一次
+#      形式等价检查，顺带验证第 2 条真的挡得住。
+#
+# 退出码：0 成功；2 用法不对或被挡下；其余是 yosys 自己的退出码。
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+YOSYS="$PREFIX/bin/yosys"
+REAL_ABC="$PREFIX/bin/yosys-abc"
+TMP="${TMPDIR:-$PREFIX/tmp}"
+SELF="$(readlink -f "$0" 2>/dev/null)"; [ -n "$SELF" ] || SELF="$0"
+
+# 本次运行的东西全放一个工作目录里，退出时整个删掉。
+# （不能只用一个「待删清单」变量：改写脚本是在 $( ) 里跑的，子 shell 里往清单里加东西
+#   加不进父 shell，会留下垃圾 —— 实测漏过一串 /tmp/yosys-run-script.*。目录就不一样了。）
+WORK="$TMP/yosys-run.$$"
+mkdir -p "$WORK" 2>/dev/null
+trap '[ -n "${WORK:-}" ] && rm -rf "$WORK"' EXIT
+
+abcfix_path=""
+script_n="0"
+
+# ---------- 给 ABC 用的 fifo 包装 ----------
+abcfix() {
+  [ -n "$abcfix_path" ] && return 0
+  local f="$WORK/abcfix.sh"
+  cat > "$f" <<EOS
+#!/bin/sh
+# 由 yosys-run 生成：yosys 喂完脚本不关 ABC 的 stdin、也不发 quit，
+# ABC 就停在交互提示符上互等。这里逐行转发，并在哨兵之后补一个 quit。
+REAL="$REAL_ABC"
+fifo="\$(mktemp -u "$WORK/fifo.XXXXXX")"
+mkfifo "\$fifo" || exit 1
+trap 'rm -f "\$fifo"' EXIT
+"\$REAL" "\$@" < "\$fifo" &
+abcpid=\$!
+exec 3>"\$fifo"
+while IFS= read -r line; do
+  printf '%s\n' "\$line" >&3 || break
+  case "\$line" in
+    *YOSYS_ABC_DONE*) printf 'quit\n' >&3; break ;;
+  esac
+done
+exec 3>&-
+wait "\$abcpid"
+exit \$?
+EOS
+  chmod +x "$f" 2>/dev/null
+  abcfix_path="$f"
+}
+
+# ---------- 挡下会永久卡死的 synth ----------
+refuse_synth() {
+  echo "yosys-run: 这里的 \`synth\` 没带 -noabc，在本机会永远卡住，先停下。$1" >&2
+  cat >&2 <<'EOF'
+
+为什么（真机实测，Yosys 0.70）：
+  yosys 调 yosys-abc 时把脚本从管道喂过去，喂完**不关管道**，也不发 quit。
+  ABC 读完脚本就停在 `abc 07> ` 交互提示符上等下一条命令 —— 两边互等，
+  yosys 一动不动，没有报错、没有超时、一个字都不说。
+  `synth` 默认会走到 abc 这一步（`yosys -p "help synth"` 里，abc 夹在 fine 段内部，
+  没有独立标签，用 -run 切不出来）。
+
+怎么办（两条路，都在本机实测过）：
+  · 不需要外部工艺库：加 -noabc。照样出网表，`stat` / `write_verilog` / `write_json` 都正常。
+      yosys-run -p "read_verilog x.v; synth -noabc; stat"
+  · 真要跑 ABC（例如有 .lib 工艺库）：先用 -noabc 综合，再单独调 abc，
+      yosys-run 会自动给 abc 补上 -exe：
+      yosys-run -p "read_verilog x.v; synth -noabc; abc -liberty cells.lib; stat"
+EOF
+  exit 2
+}
+
+# ---------- 扫一遍脚本文本 ----------
+# 按 yosys 自己的分句规则切（换行、`;`），只看每句开头：
+#   synth 不带 -noabc   → 挡下（check / rewrite 两种模式都挡）
+#   abc …              → mode=rewrite 时补 -exe（已经有 -exe 就不动）
+# mode=check 时不输出任何东西，只做检查（用来在改写之前先拦下来）。
+scan() {
+  local text="$1" where="$2" mode="$3" line rest seg trimmed lead rebuilt
+  while IFS= read -r line; do
+    rebuilt=""; rest="$line"
+    while :; do
+      case "$rest" in
+        *';'*) seg="${rest%%;*}"; rest="${rest#*;}" ;;
+        *)     seg="$rest";      rest="" ;;
+      esac
+      trimmed="${seg#"${seg%%[![:space:]]*}"}"      # 去掉前导空白
+      lead="${seg%"$trimmed"}"
+      case "$trimmed" in
+        abc|abc[[:space:]]*)
+          if [ "$mode" = rewrite ] && [[ "$trimmed" != *"-exe"* ]]; then
+            echo "yosys-run: 已把 abc 补成 abc -exe $abcfix_path（本机 ABC 不会自己退出，见 yosys-run --why）" >&2
+            seg="$lead""abc -exe $abcfix_path${trimmed#abc}"
+          fi
+          ;;
+        synth|synth[[:space:]]*)
+          [[ "$trimmed" == *"-noabc"* ]] || refuse_synth "（位置：$where）"
+          ;;
+      esac
+      if [ -z "$rebuilt" ]; then rebuilt="$seg"; else rebuilt="$rebuilt;$seg"; fi
+      [ -n "$rest" ] || break
+    done
+    [ "$mode" = rewrite ] && printf '%s\n' "$rebuilt"
+  done <<< "$text"
+  return 0
+}
+
+# 脚本文件的检查：必须在**顶层**调用（不能在 $( ) 里 —— 子 shell 里的 exit 退不出主脚本）
+precheck_file() {
+  local src="$1" where="$2"
+  [ -r "$src" ] || { echo "yosys-run: 读不了脚本文件：$src" >&2; exit 2; }
+  scan "$(cat "$src")" "$where" check
+}
+
+# 改写脚本文件 → 临时文件，把路径打到 stdout（改写前请先 precheck_file）
+rewrite_file() {
+  local src="$1" where="$2" tmp
+  [ -r "$src" ] || { echo "yosys-run: 读不了脚本文件：$src" >&2; exit 2; }
+  script_n=$((script_n + 1))
+  # 后缀必须是 .ys：位置参数上的脚本，yosys 是靠后缀认的，改了名它会当成输入文件去猜前端
+  tmp="$WORK/script.$script_n.ys"
+  scan "$(cat "$src")" "$where" rewrite > "$tmp"
+  printf '%s\n' "$tmp"
+}
+
+# ---------- selftest ----------
+selftest() {
+  local d rc fail=0 out fixed
+  d="$WORK/selftest"
+  mkdir -p "$d" || { echo "建不了临时目录"; return 1; }
+  cat > "$d/ctr.v" <<'V'
+module ctr(input clk, input rst, output reg [3:0] q);
+  always @(posedge clk) q <= rst ? 4'd0 : q + 4'd1;
+endmodule
+V
+  cat > "$d/gold.v" <<'V'
+module top(input a, input b, input c, output y);
+  assign y = (a & b) | (~a & c);
+endmodule
+V
+  cat > "$d/gate.v" <<'V'
+module top(input a, input b, input c, output y);
+  wire t1, t2, nb;
+  assign nb = ~a;
+  assign t1 = a & b;
+  assign t2 = nb & c;
+  assign y = t1 | t2;
+endmodule
+V
+
+  echo "· 综合一个 5 行模块：read_verilog → synth -noabc → stat"
+  out="$d/stat.txt"
+  timeout 180 "$YOSYS" -Q -T -p "read_verilog $d/ctr.v; synth -noabc; stat" </dev/null > "$out" 2>&1
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "  ✗ 综合失败（rc=$rc）"; tail -5 "$out" | sed 's/^/    /'; fail=1
+  elif ! grep -qE '\$_S?DFF' "$out"; then
+    echo "  ✗ stat 里没有触发器（\$_DFF_*），综合结果不对"; tail -20 "$out" | sed 's/^/    /'; fail=1
+  else
+    echo "  ✓ stat：$(grep -E '^ +[0-9]+ +\$' "$out" | head -5 | tr -s ' ' | tr '\n' ' ')"
+  fi
+
+  echo "· 写门级网表 write_verilog"
+  timeout 60 "$YOSYS" -Q -T -p "read_verilog $d/ctr.v; synth -noabc; write_verilog $d/net.v" </dev/null >/dev/null 2>&1
+  rc=$?
+  if [ $rc -ne 0 ] || [ ! -s "$d/net.v" ]; then
+    echo "  ✗ 没写出网表（rc=$rc）"; fail=1
+  elif ! head -1 "$d/net.v" | grep -q 'Generated by Yosys'; then
+    echo "  ✗ 写出来的东西不像 yosys 网表：$(head -1 "$d/net.v")"; fail=1
+  else
+    echo "  ✓ net.v $(wc -c < "$d/net.v") 字节"
+  fi
+
+  echo "· 走一遍 ABC（脚本里只写 abc，-exe 由本脚本补）"
+  fixed="$(scan "read_verilog $d/ctr.v; synth -noabc; abc; stat" "selftest" rewrite)"
+  if [ -z "$fixed" ]; then
+    echo "  ✗ 改写脚本就失败了"; fail=1
+  else
+    timeout 180 "$YOSYS" -Q -T -p "$fixed" </dev/null > "$d/abc.txt" 2>&1
+    rc=$?
+    if [ $rc -eq 124 ]; then
+      echo "  ✗ ABC 又卡住了（180 秒超时）—— fifo 包装没起作用"; fail=1
+    elif [ $rc -ne 0 ]; then
+      echo "  ✗ 带 ABC 的流程失败（rc=$rc）"; tail -5 "$d/abc.txt" | sed 's/^/    /'; fail=1
+    elif ! grep -q 'Executing ABC pass' "$d/abc.txt"; then
+      echo "  ✗ 根本没走到 ABC"; fail=1
+    else
+      echo "  ✓ ABC 跑完并正常退出（rc=0）"
+    fi
+  fi
+
+  echo "· 形式等价：两种写法应当被判等价"
+  timeout 180 "$YOSYS" -Q -T \
+    -p "read_verilog $d/gold.v; prep -top top; rename top gold; design -stash gold" \
+    -p "read_verilog $d/gate.v; prep -top top; rename top gate; design -copy-from gold -as gold gold" \
+    -p "equiv_make gold gate equiv; hierarchy -top equiv; equiv_simple; equiv_status -assert" \
+    </dev/null > "$d/equiv.txt" 2>&1
+  rc=$?
+  if [ $rc -eq 124 ]; then
+    echo "  ✗ 等价检查超时（180 秒）"; fail=1
+  elif [ $rc -ne 0 ] || ! grep -q 'Equivalence successfully proven' "$d/equiv.txt"; then
+    echo "  ✗ 没判出等价（rc=$rc）"; tail -5 "$d/equiv.txt" | sed 's/^/    /'; fail=1
+  else
+    echo "  ✓ Equivalence successfully proven!"
+  fi
+
+  echo "· 位置上的脚本文件也要能跑（.ys）"
+  printf 'read_verilog %s\nsynth -noabc\nstat\n' "$d/ctr.v" > "$d/run.ys"
+  "$SELF" -s "$d/run.ys" -Q -T </dev/null > "$d/ys2.txt" 2>&1
+  rc=$?
+  if [ $rc -ne 0 ] || ! grep -qE '\$_S?DFF' "$d/ys2.txt"; then
+    echo "  ✗ -s 跑脚本失败（rc=$rc）"; tail -5 "$d/ys2.txt" | sed 's/^/    /'; fail=1
+  else
+    echo "  ✓ -s 脚本：rc=0，stat 有触发器"
+  fi
+
+  echo "· 守卫：不带 -noabc 的 synth 必须被挡下（不然就是静悄悄卡死）"
+  local g_ok=1
+  "$SELF" -p "read_verilog $d/ctr.v; synth; stat" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 2 ] || { echo "  ✗ -p 里的 synth 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
+  "$SELF" -S "$d/ctr.v" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 2 ] || { echo "  ✗ -S 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
+  printf 'read_verilog %s\nsynth\nstat\n' "$d/ctr.v" > "$d/plain.ys"
+  "$SELF" "$d/plain.ys" </dev/null >/dev/null 2>&1
+  rc=$?; [ $rc -eq 2 ] || { echo "  ✗ 位置脚本里的 synth 没挡下（rc=$rc，期望 2）"; g_ok=0; fail=1; }
+  [ $g_ok -eq 1 ] && echo "  ✓ -p / -S / 位置脚本 三条路都挡下了（rc=2）"
+
+  echo "===== 总结 ===== $( [ $fail -eq 0 ] && echo '全部通过' || echo '有失败项' )"
+  return $fail
+}
+
+print_why() {
+  cat <<'EOF'
+本机的 yosys（Yosys 0.70）**任何走到 ABC 的流程都会永远卡住**，没有报错也没有超时：
+
+  yosys 调 yosys-abc 时把脚本从管道喂过去，喂完**不关管道的写端**、也不发 quit。
+  ABC 读完脚本就停在交互提示符 `abc 07> ` 上等下一条命令 —— 两边互等，谁都不动。
+  （运行时翻 /proc/<yosys>/fd 能看到它一直攥着那个写端 pipe。`env -u LD_PRELOAD`、
+   enosys-run 加垫片都试过，一样卡 —— 不是 seccomp 的事。）
+
+  `synth` 默认就会走到 abc 这一步；`yosys -p "help synth"` 里 abc 夹在 fine 段内部，
+  没有独立标签，-run 也切不出来。
+
+两条出路（都实测过）：
+  · 不需要外部工艺库 → 加 -noabc：照样出网表，stat / write_verilog / write_json 都正常。
+  · 真要跑 ABC（有 .lib 工艺库）→ 先 synth -noabc，再单独 abc；yosys-run 会自动补 -exe。
+EOF
+}
+
+# ---------- 参数处理 ----------
+if [ $# -eq 0 ]; then
+  echo "yosys-run <yosys 的参数…>   |   yosys-run --selftest   |   yosys-run --why" >&2
+  exit 2
+fi
+abcfix                      # 先把 fifo 包装建好（顶层，全局变量才留得住）
+case "$1" in
+  --selftest) selftest; exit $? ;;
+  --why)      print_why; exit 0 ;;
+  --help|-h)  awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+esac
+
+declare -a out_args=()
+saw_frontend=0
+for a in "$@"; do
+  case "$a" in -f|--frontend) saw_frontend=1 ;; esac
+done
+
+i=1
+while [ $i -le $# ]; do
+  a="${!i}"
+  case "$a" in
+    -S|--synth)
+      refuse_synth "（命令行用了 $a，它内部就是跑 synth）"
+      ;;
+    -p|--commands)
+      i=$((i + 1))
+      [ $i -le $# ] || { echo "yosys-run: $a 后面缺命令串" >&2; exit 2; }
+      scan "${!i}" "命令行 $a" check          # 顶层：挡下就真的退出
+      out_args+=("-p" "$(scan "${!i}" "命令行 $a" rewrite)")
+      ;;
+    -p*)
+      c="${a#-p}"
+      scan "$c" "命令行 -p" check
+      out_args+=("-p" "$(scan "$c" "命令行 -p" rewrite)")
+      ;;
+    -s|--scriptfile)
+      i=$((i + 1))
+      [ $i -le $# ] || { echo "yosys-run: $a 后面缺文件名" >&2; exit 2; }
+      precheck_file "${!i}" "脚本 ${!i}"
+      out_args+=("-s" "$(rewrite_file "${!i}" "脚本 ${!i}")")
+      ;;
+    -s*)
+      precheck_file "${a#-s}" "脚本 ${a#-s}"
+      out_args+=("-s" "$(rewrite_file "${a#-s}" "脚本 ${a#-s}")")
+      ;;
+    --)   out_args+=("$a"); i=$((i + 1))
+          while [ $i -le $# ]; do out_args+=("${!i}"); i=$((i + 1)); done
+          break ;;
+    -*)
+      out_args+=("$a")
+      case "$a" in
+        -b|--backend|-f|--frontend|-o|-l|--logfile|-m|--plugin|-D|--define|-r|--top|-v|--verbose)
+          i=$((i + 1)); out_args+=("${!i:-}") ;;
+      esac
+      ;;
+    *)
+      # 位置参数：yosys 自己的规矩是「没给 -f 且以 .ys 结尾」才当脚本，
+      # 其它情况（foo.v / foo.blif …）是输入文件，交给 yosys 自己判断。
+      case "$a" in
+        *.ys)
+          if [ $saw_frontend -eq 0 ] && [ -f "$a" ]; then
+            precheck_file "$a" "脚本 $a"
+            out_args+=("$(rewrite_file "$a" "脚本 $a")")
+          else
+            out_args+=("$a")
+          fi
+          ;;
+        *) out_args+=("$a") ;;
+      esac
+      ;;
+  esac
+  i=$((i + 1))
+done
+
+"$YOSYS" "${out_args[@]}"
+exit $?

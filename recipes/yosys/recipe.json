@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "yosys",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "Yosys（Verilog 综合）", "en": "Yosys (Verilog synthesis)" },
+  "desc": {
+    "zh": "Verilog / SystemVerilog 综合与形式化：把 RTL 综合成门级网表，看资源占用、写网表文件、做等价检查和 SAT 求解。命令行批处理，没有图形界面。",
+    "en": "Verilog / SystemVerilog synthesis and formal: synthesise RTL to a gate-level netlist, report resource usage, write netlists, and run equivalence and SAT checks. Command-line batch only (no GUI)."
+  },
+  "roots": ["yosys"],
+  "bin": ["yosys", "yosys-run"],
+  "selftest": "yosys-run --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "ISC",
+  "homepage": "https://yosyshq.net/yosys/",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/yosys-run": { "src": "bin/yosys-run", "mode": "755" }
+  },
+  "notes": "yosys-run 存在的理由：本机的 yosys 走到 ABC 那一步会**永远卡住**（实测：yosys 把 ABC 脚本从管道喂过去后不关写端也不发 quit，ABC 停在 `abc 07> ` 提示符上互等；翻 /proc/<yosys>/fd 能看到它一直攥着那个写端 pipe），没有报错、没有超时、一个字都不说，而 `synth` 默认就会走到 ABC。包装脚本做两件事：给脚本里的 `abc` 自动补 `-exe <fifo 包装>`（转发脚本、看到哨兵 YOSYS_ABC_DONE 就补 quit，ABC 正常退出，且真做优化：4 位计数器的 $_AND_/$_XOR_ 变成 $_NAND_/$_XNOR_）；以及遇到不带 -noabc 的 `synth`（-p / -s / 位置脚本 / -S 四条路）当场拦住并说明两条出路，免得静悄悄卡死。selftest 跑综合 + stat + 写网表 + 走 ABC + 形式等价 + 验证守卫拦得住，约 0.5 秒。"
+}
