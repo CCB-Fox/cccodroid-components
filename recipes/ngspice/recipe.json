@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "ngspice",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "ngspice（电路仿真）", "en": "ngspice (circuit simulation)" },
+  "desc": {
+    "zh": "SPICE 电路仿真：写网表，跑直流 / 瞬态 / 交流 / 噪声 / 工作点分析，读数值结果。命令行批处理，没有图形界面（要画波形就让 Claude 生成 SVG）。",
+    "en": "SPICE circuit simulation: write a netlist and run DC / transient / AC / noise / operating-point analyses, read the numbers. Command-line batch only (no GUI; ask Claude to draw an SVG for waveforms)."
+  },
+  "roots": ["ngspice"],
+  "bin": ["ngspice", "spice-run"],
+  "selftest": "spice-run --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "BSD-3-Clause AND LGPL-2.1-only",
+  "homepage": "https://ngspice.sourceforge.net/",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/spice-run": { "src": "bin/spice-run", "mode": "755" }
+  },
+  "notes": "spice-run 存在的理由：ngspice 有一类错误退出码是 0（实测 `print i(R1)` 只打一句 \"Error: no such function as i,\" 就返回 0；.control 里只写 quit 也是 0 且什么都不算），直接跑会当成算对了。包装脚本扫输出里的 Error 挡掉，另外它还挂着 selftest（真跑一个 RC 充电电路，末值和解析解 5·(1−e⁻⁵)=4.96631 V 对比，容差 1%），以及在首行长得像元件名时提醒「网表第一行会被当标题」这个 SPICE 老坑。"
+}

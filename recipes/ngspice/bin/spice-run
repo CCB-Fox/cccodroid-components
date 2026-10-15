@@ -1,0 +1,125 @@
+#!{{PREFIX}}/bin/bash
+# spice-run — 批处理跑 ngspice 网表，顺手把「假成功」挡掉（cccodroid 的 ngspice 组件）
+#
+#   spice-run <网表文件> [ngspice 的其它参数…]
+#   spice-run --selftest
+#
+# 为什么要它：ngspice 有一类错误**退出码是 0**。实测（都是真跑出来的）：
+#   · `print i(R1)` —— 电阻支路电流不能这么取 —— 只打一行
+#     "Error: no such function as i," 然后返回 0，你要是不看输出就以为算对了；
+#   · .control 里只写 quit 时，退出码 0、一行错都没有，但什么都没算。
+#   （网表整体写错、只有 .tran 没有 .control 这些，它倒是会返回 1。）
+# 所以这个包装脚本做三件事：
+#   1. 扫输出里的 Error / "no simulations run!"，见到就返回 1 并把原文打出来；
+#   2. --selftest：真跑一个 RC 充电电路，拿末值和解析解 5·(1−e⁻⁵) 对一遍；
+#   3. 去掉每次都会打、和电路无关的两行噪声。
+#
+# 退出码：0 真的算完了；1 有错；2 用法不对
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+NGSPICE="$PREFIX/bin/ngspice"
+# 这几行每次都会打，和电路无关
+noise() { grep -v -e '^Note: No compatibility mode selected!' -e '^Using SPARSE 1\.3 as Direct Linear Solver$'; }
+
+selftest() {
+  local t rc=0 last theory rows
+  t="$(mktemp -d "${TMPDIR:-/tmp}/spice-selftest.XXXXXX")" || { echo "✗ 建不了临时目录"; return 1; }
+
+  # RC 充电：τ = RC = 1 kΩ × 1 µF = 1 ms，跑 5τ，末值应该是 5·(1−e⁻⁵) = 4.96631 V
+  cat > "$t/rc.cir" <<'CIR'
+* RC 充电自检
+V1 in 0 PULSE(0 5 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.control
+tran 0.2m 5m
+wrdata rc.dat v(out)
+.endc
+.end
+CIR
+  # 必须在临时目录里跑：wrdata 写的是**相对当前工作目录**的路径，不是网表所在的目录
+  if ! ( cd "$t" && "$NGSPICE" -b rc.cir > log 2>&1 ); then
+    echo "✗ ngspice 退出码非 0"; noise < "$t/log" | tail -5 | sed 's/^/    /'; rc=1
+  fi
+  if [ ! -s "$t/rc.dat" ]; then
+    echo "✗ 没有写出数据文件"; noise < "$t/log" | tail -5 | sed 's/^/    /'; rc=1
+  else
+    rows="$(wc -l < "$t/rc.dat")"
+    last="$(tail -1 "$t/rc.dat" | awk '{print $2}')"
+    # 和解析解比：5·(1−e⁻⁵) = 4.966311 V，容差 1%
+    theory="4.966311"
+    if awk -v a="$last" -v b="$theory" 'BEGIN{ d=a-b; if (d<0) d=-d; exit !(d < b*0.01) }'; then
+      echo "✓ RC 充电：$rows 个数据点，5τ 处 v(out)=${last} V（理论 4.96631 V）"
+    else
+      echo "✗ RC 充电末值不对：$last V，应该是 4.96631 V 附近"
+      rc=1
+    fi
+  fi
+
+  rm -rf "$t"
+  if [ $rc -eq 0 ]; then
+    echo "===== 总结 ===== 瞬态=OK 末值=$last 数据点=$rows"
+  else
+    echo "===== 总结 ===== 瞬态=FAIL"
+  fi
+  return $rc
+}
+
+usage() {
+  sed -n '2,14p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in
+  --selftest) selftest; exit $? ;;
+  -h|--help) usage 0 ;;
+  "") usage 2 ;;
+esac
+
+[ -x "$NGSPICE" ] || { echo "spice-run: 找不到 $NGSPICE —— ngspice 组件没装好？" >&2; exit 1; }
+
+CIR="$1"; shift
+[ -f "$CIR" ] || {
+  if [ -d "$CIR" ]; then echo "spice-run: 这是个目录，要给一个网表文件：$CIR" >&2
+  else echo "spice-run: 找不到网表文件：$CIR" >&2; fi
+  exit 1
+}
+
+# SPICE 老规矩：网表**第一行永远是标题**，不是元件。第一行写 `V1 in 0 DC 5` 的后果是
+# 电源被当标题吃掉、电路里根本没有它，ngspice 一声不吭，结果全是 0 —— 实测过。
+# 只在首行长得像元件名（字母+数字，如 V1 / R2）时才提示，正常的文字标题（"Low pass filter"）不误报。
+FIRST="$(grep -m1 -v '^[[:space:]]*$' "$CIR" 2>/dev/null || true)"
+case "$FIRST" in
+  [!*]*)
+    if printf '%s' "$FIRST" | grep -qE '^[A-Za-z][0-9]'; then
+      echo "spice-run: 提示 —— 网表第一行会被当作标题（SPICE 老规矩），你这里第一行是「$FIRST」。" >&2
+      echo "           要是它本来是个元件，就不会生效（ngspice 不会报错，结果会全是 0）。" >&2
+      echo "           第一行写成注释（* 开头）或空行就没这问题。" >&2
+    fi
+    ;;
+esac
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/spice-run.XXXXXX")" || exit 1
+trap 'rm -f "$LOG"' EXIT
+
+rc=0
+"$NGSPICE" -b "$@" "$CIR" > "$LOG" 2>&1 || rc=$?
+
+noise < "$LOG"
+
+if [ "$rc" -ne 0 ] || grep -qE '^(Error:|.*Simulation interrupted due to error|.*no simulations run!)' "$LOG"; then
+  echo "spice-run: 仿真没跑成（ngspice 退出码 $rc）：" >&2
+  grep -E '^(Error:|.*Simulation interrupted due to error|.*no simulations run!)' "$LOG" | sed 's/^/  /' >&2
+  # 最常见的一类：只写了 .tran，忘了 .control 块
+  grep -q "no simulations run" "$LOG" && cat >&2 <<'HINT'
+  提示：batch 模式下光有 .tran/.ac/.dc 不够，要放进 .control 块里，例如
+      .control
+      tran 0.2m 5m
+      print v(out)
+      .endc
+HINT
+  exit 1
+fi
