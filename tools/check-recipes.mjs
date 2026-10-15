@@ -6,9 +6,10 @@ import { recipes } from "./lib.mjs";
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
   "fetch", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes"]);
 const KINDS = new Set(["termux", "glibc"]);
-// fetch 不许从市场自己的 Release 取东西：那等于绕开评审往里塞二进制（"不带自带二进制"这条就废了）
-const SELF_HOSTS = [/^https:\/\/github\.com\/greyoak111\/cccodroid-components\//i,
-                    /^https:\/\/objects\.githubusercontent\.com\/.*cccodroid-components/i];
+// fetch 不许从市场自己这里取东西：那等于绕开评审往里塞二进制（"不带自带二进制"这条就废了）。
+// 不光是 Release —— PR 里的提交（哪怕后来删了）也能经 raw.githubusercontent.com/<本仓库>/<提交>/… 取到，
+// codeload、api 同理，所以整个 github.com / githubusercontent.com 下指向本仓库的都拦。
+const SELF = /^https:\/\/(?:[a-z0-9-]+\.)*(?:github\.com|githubusercontent\.com)\/(?:repos\/)?greyoak111\/cccodroid-components(?:[/.?#]|$)/i;
 let bad = 0;
 const err = (r, m) => { console.log(`✗ ${r}: ${m}`); bad++; };
 const ids = new Set();
@@ -34,14 +35,15 @@ for (const r of recipes()) {
   }
   for (const [p, f] of Object.entries(r.fetch || {})) {
     if (!p.startsWith("usr/") || p.includes("..")) err(n, "fetch 只能放进 usr/ 下: " + p);
-    if (f.link) {
-      // 只做一条软链（不下载）：常见于上游库的 SONAME 是 libX.so.1、而文件叫 libX.so
+    if (f.link !== undefined) {
+      // 只做一条软链（不下载）：常见于上游库的 SONAME 是 libX.so.1、而文件叫 libX.so。
+      // 目标只能是同目录的文件名：绝对路径、带 / 的都不行（软链指出去，后面的文件就能顺着它写到别处）
       if (f.url || f.sha256) err(n, `fetch 的 link 条目不该再有 url/sha256: ${p}`);
-      if (f.link.includes("..")) err(n, `fetch 的 link 目标不能带 ..: ${p}`);
+      if (!/^[A-Za-z0-9._+-]+$/.test(String(f.link)) || f.link === "." || f.link === "..") err(n, `fetch 的 link 只能写同目录的文件名: ${p}`);
       continue;
     }
     if (!/^https:\/\/\S+$/.test(f.url || "")) err(n, `fetch 的 url 必须是 https: ${p}`);
-    else if (SELF_HOSTS.some((re) => re.test(f.url))) err(n, `fetch 不能从市场自己的 Release 取（等于自带二进制）: ${p}`);
+    else if (SELF.test(f.url)) err(n, `fetch 不能从市场仓库自己取（等于自带二进制）: ${p}`);
     if (!/^[0-9a-f]{64}$/.test(f.sha256 || "")) err(n, `fetch 的 sha256 要写全（64 位小写十六进制）: ${p}`);
     if (!f.why) err(n, `fetch 要写 why：这是什么、为什么不能走 Termux 官方仓库: ${p}`);
     if (f.mode !== undefined && !/^[0-7]{3,4}$/.test(String(f.mode))) err(n, `fetch 的 mode 是八进制三位/四位: ${p}`);
