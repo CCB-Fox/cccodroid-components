@@ -12,6 +12,7 @@
   "bin": ["ngspice", "spice-run"],
   "selftest": "spice-run --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "eda",
   "license": "BSD-3-Clause AND LGPL-2.1-only",
   "homepage": "https://ngspice.sourceforge.net/",
   "maintainers": ["greyoak111"],
