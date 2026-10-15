@@ -1,6 +1,7 @@
 # 贡献配方 / Contributing
 
 1. 在 [packages.termux.dev](https://packages.termux.dev) 或 termux-packages 仓库确认软件有 aarch64 包。
+   确实没有、而组件又非用不可的构件才走 `fetch`（写全 sha256 与 why，见 [docs/recipe.md](docs/recipe.md#fetch仓库外的上游构件)）。
 2. 复制 `recipes/gh/` 改成你的组件，按 [docs/recipe.md](docs/recipe.md) 填写。
 3. 本地检查（需要 Node 22 和 cccodroid 仓库的 `devkit/`）：
    ```sh
@@ -14,7 +15,8 @@
 不收：
 
 - 需要 root、或要改系统设置才能用的东西。
-- 自带二进制、从非 Termux 官方源下载的东西（v1 只有 `kind: termux`）。
+- 仓库里放二进制，或从市场自己的 Release 取东西（`fetch` 也不许指过来）。
+- 官方仓库没有、又不是这个组件自己运行所必需的上游构件（`fetch` 只留给这种情形）。
 - 许可证不允许再分发的软件。
 - 收集、转发账号凭据的工具或 skill。
 
@@ -26,4 +28,4 @@
 4. Open a pull request. CI validates the recipe and resolves its dependencies; after merge it builds and publishes a signed index.
 5. Once tested on a real device, add an entry to `verified.json` in a follow-up PR.
 
-Not accepted: anything needing root or system-setting changes, prebuilt binaries or non-Termux sources, software whose license forbids redistribution, and tools or skills that collect or relay account credentials.
+Not accepted: anything needing root or system-setting changes; binaries committed to the repo or pulled from the market's own releases; upstream artifacts the component does not itself need at runtime (the only thing `fetch` is for); software whose license forbids redistribution; and tools or skills that collect or relay account credentials.
