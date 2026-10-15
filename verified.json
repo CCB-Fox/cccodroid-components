@@ -8,6 +8,13 @@
         "app": "cccodroid 0.1.9 + v0.2.0 gateway (1b26c6a)",
         "checks": "installed from signed community index; gh --version OK; skill github-cli installed",
         "by": "greyoak111"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 239, shared 0; skill github-cli installed; selftest gh --version exit 0 (2.102.0); removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
       }
     }
   },
@@ -19,6 +26,13 @@
         "app": "cccodroid 0.1.11 (gateway d969186)",
         "by": "greyoak111",
         "checks": "installed from signed community index; same-origin files already on device (placed 0, shared 8683); lgpu-info Turnip=OK; removal refused while clvk-glibc depends on it; removed cleanly afterwards, devkit base unchanged"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 8680, shared 3; skill gpu-driver-glibc installed; selftest lgpu-info exit 0: Turnip=OK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
       }
     }
   },
@@ -30,6 +44,13 @@
         "app": "cccodroid 0.1.11 (gateway d969186)",
         "by": "greyoak111",
         "checks": "installed from signed community index; refused before gpu-driver-glibc was installed; same-origin files already on device (placed 0, shared 10); clvk-info: OpenCL 3.0 CLVK on Turnip Adreno, vector add PASS (0/4096 wrong); removed cleanly, devkit base unchanged"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; dependency gpu-driver-glibc installed by the script first; placed 9, shared 1; skill clvk-glibc installed; selftest clvk-info exit 0: OpenCL 3.0 CLVK on Turnip Adreno, kernel compile OK, vector add PASS (0/4096 wrong); removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
       }
     }
   },
@@ -40,6 +61,13 @@
         "device": "LENOVO TB320FC / Android 15",
         "app": "cccodroid 0.1.11",
         "checks": "tools/verify-device.mjs, installed alone (browser removed first): installed from signed index; placed 219, shared 2; skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS opencl=-; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-15",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 14, shared 0 (Mesa etc. now come from the devkit base); skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
     }

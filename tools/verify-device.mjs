@@ -80,7 +80,7 @@ function baseCheck() {
 const sh = (cmd, timeout = 300000) => {
   const r = spawnSync(path.join(PREFIX, "bin", "bash"), ["-c", cmd], { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PATH: path.join(PREFIX, "bin") + ":" + (process.env.PATH || "/system/bin") } });
-  return { code: r.status ?? (r.error ? -1 : -2), out: ((r.stdout || "") + (r.stderr || "")).trim() };
+  return { code: r.status ?? (r.error ? -1 : -2), out: ((r.stdout || "") + (r.stderr || "")).trim(), stdout: (r.stdout || "").trim() };
 };
 const prop = (k) => { try { return execFileSync("/system/bin/getprop", [k], { encoding: "utf8" }).trim(); } catch { return ""; } };
 
@@ -131,7 +131,8 @@ if (ir.ok) {
   log(`\n② selftest：${self || "（索引里没有）"}`);
   if (self) {
     st = sh(self);
-    const last = st.out.split("\n").filter(Boolean).pop() || "";
+    // 总结取标准输出的最后一行：stderr 上常有库的告警（GLib、LD_PRELOAD 提示），排在后面会把结果挤掉
+    const last = (st.stdout || st.out).split("\n").filter(Boolean).pop() || "";
     for (const l of st.out.split("\n").slice(-6)) log("   | " + l);
     ok(st.code === 0, `selftest 退出码 ${st.code}${last ? "；最后一行：" + last : ""}`);
     st.last = last;
