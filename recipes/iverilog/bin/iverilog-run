@@ -1,0 +1,350 @@
+#!{{PREFIX}}/bin/bash
+# iverilog-run — 编译 + 跑一次 Verilog 仿真（cccodroid 的 iverilog 组件）
+#
+#   iverilog-run <testbench.v> [dut.v …] [iverilog 自己的参数…]
+#   iverilog-run --timeout 120 tb.v dut.v      仿真最多跑 120 秒
+#   iverilog-run --no-scan tb.v dut.v          关掉「输出里有 ERROR: 就报错」的检查
+#   iverilog-run --selftest
+#
+# 为什么要有它：**testbench 里不写 $finish，仿真就永远跑下去**，而 vvp 一个提示都不给。
+#   实测：一个只有 `always #5 clk = ~clk;` 加一句 initial $display 的 testbench，
+#   vvp 跑 6 秒、60 秒都不会停 —— 在人手里是「还在跑」，在 Claude 手里就是卡死。
+#   这个包装给仿真加超时（默认 60 秒），超时就明确说「仿真没结束」并指出多半是少了 $finish。
+#
+# 还挡一类「退出码 0、结果是错的」：
+#   · **testbench 没写 $finish** → 超时挡下（退出码 3）；
+#   · **$readmemh / $readmemb 打不开文件** → Icarus 只打印一句 ERROR 就把存储器填成 xx，
+#     仿真照跑、退出码 0；
+#   · **$error(...)** → 只报错不终止，退出码 0（$fatal 才给 1）。
+#   所以跑完还会扫一遍输出里的 ERROR:/FATAL:，见到就报出来并给退出码 4（--no-scan 可关）。
+#
+# 另外：
+#   · 编译 + 跑合并成一条命令，**编译不过就不跑**（返回 iverilog 的退出码，实测是 2），
+#     不会拿着上一次留下的 .vvp 跑出个看似成功的结果；
+#   · vvp 用 `-n` 跑（Icarus 自己的选项：`$stop` 当成 `$finish`），
+#     这样 testbench 里的 $stop 不会停在交互提示符上等人敲回车；
+#   · `+xxx` 这类 plusarg 交给仿真程序（vvp），不丢给编译器；
+#   · 带参数的选项（`-s top` / `-D DEBUG` / `-I inc` / `-y lib` …）**连参数一起认**，
+#     参数不会被当成源文件（不认的话 `-s tb -g2012 tb.v` 里的 `tb` 一变成源文件，
+#     `-g2012` 就被误判成「写在源文件后面」而退出 —— 实测过）；
+#   · 选项写在源文件后面会被 iverilog 当成给仿真的 plusarg —— 本脚本会拦下来并说明。
+#
+# 退出码：0 跑完且输出里没有 ERROR:/FATAL:；1 仿真里 $fatal 等 vvp 的错；
+#         3 仿真超时没结束；4 跑完了但输出里有 ERROR:/FATAL:；
+#         编译不过 = **iverilog 自己的码**原样返回（实测缺 include 是 1、语法错和模块找不到是 2）；
+#         本脚本用法不对 = 2。
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+IVERILOG="$PREFIX/bin/iverilog"
+VVP="$PREFIX/bin/vvp"
+TMP="${TMPDIR:-$PREFIX/tmp}"
+
+WORK="$TMP/iverilog-run.$$"
+mkdir -p "$WORK" 2>/dev/null
+trap '[ -n "${WORK:-}" ] && rm -rf "$WORK"' EXIT
+
+TIMEOUT_SECS=60
+
+die() { echo "iverilog-run: $*" >&2; exit 2; }
+
+# ---------- selftest ----------
+selftest() {
+  local d="$WORK/selftest" rc fail=0 out
+  mkdir -p "$d" || { echo "建不了临时目录"; return 1; }
+  cat > "$d/counter.v" <<'V'
+module counter(input clk, input rst, output reg [3:0] q);
+  always @(posedge clk) q <= rst ? 4'd0 : q + 4'd1;
+endmodule
+V
+  cat > "$d/tb.v" <<'V'
+`timescale 1ns/1ps
+module tb;
+  reg clk = 0, rst = 1;
+  wire [3:0] q;
+  counter dut(.clk(clk), .rst(rst), .q(q));
+  always #5 clk = ~clk;
+  initial begin
+    $dumpfile("tb.vcd");
+    $dumpvars(0, tb);
+    #12 rst = 0;
+    #100 $display("Q=%0d", q);
+    #50 $finish;
+  end
+endmodule
+V
+  cat > "$d/notb.v" <<'V'
+module tb;
+  reg clk = 0;
+  always #5 clk = ~clk;
+  initial $display("这个 testbench 没有 $finish");
+endmodule
+V
+  cat > "$d/bad.v" <<'V'
+module bad(input a
+endmodule
+V
+  cat > "$d/stoptb.v" <<'V'
+module tb;
+  initial begin
+    $display("到了 $stop");
+    $stop;
+    $display("$stop 之后还活着");
+  end
+endmodule
+V
+
+  echo "· 编译 + 跑一个 4 位计数器（tb.v + counter.v）"
+  ( cd "$d" && timeout 60 "$SELF" tb.v counter.v > run.log 2>&1 )
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "  ✗ 编译或仿真失败（rc=$rc）"; tail -5 "$d/run.log" | sed 's/^/    /'; fail=1
+  elif ! grep -q 'Q=10$' "$d/run.log"; then
+    # clk 周期 10ns，t=12 放开复位 → t=20,30,…,110 共 10 个上升沿 → q=10；t=112 采样
+    echo "  ✗ 仿真结果不对，期望 Q=10：$(grep -E '^Q=' "$d/run.log" | head -1)"; fail=1
+  else
+    echo "  ✓ 跑完，Q=10（clk 10ns、t=12 放开复位 → 第 10 个上升沿，t=112 采样）"
+  fi
+
+  echo "· \$dumpfile/\$dumpvars 要真出波形"
+  if [ -s "$d/tb.vcd" ] && grep -q '\$enddefinitions' "$d/tb.vcd"; then
+    echo "  ✓ tb.vcd $(wc -c < "$d/tb.vcd") 字节，含 \$enddefinitions"
+  else
+    echo "  ✗ 没生成像样的 VCD"; fail=1
+  fi
+
+  echo "· 编译不过必须挡住（不能拿上次的 .vvp 跑）"
+  ( cd "$d" && timeout 60 "$SELF" bad.v > bad.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 2 ]; then
+    echo "  ✓ 返回 2（iverilog 的编译错误码），没往下跑"
+  else
+    echo "  ✗ 编译错返回的是 $rc（期望 2）"; fail=1
+  fi
+
+  echo "· 没写 \$finish 的 testbench 不能陪它卡死（--timeout 3）"
+  ( cd "$d" && timeout 60 "$SELF" --timeout 3 notb.v > notb.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 3 ]; then
+    echo "  ✓ 3 秒后停下并说明（rc=3）"
+  else
+    echo "  ✗ 期望超时码 3，实际 $rc"; tail -3 "$d/notb.log" | sed 's/^/    /'; fail=1
+  fi
+
+  echo "· \$stop 不许停在交互提示符上等人敲回车（vvp -n）"
+  ( cd "$d" && timeout 30 "$SELF" --timeout 10 stoptb.v > stop.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 0 ] && grep -q '到了' "$d/stop.log"; then
+    echo "  ✓ \$stop 当成 \$finish 收尾了（rc=0，没有停在提示符上）"
+  else
+    echo "  ✗ \$stop 那条不对（rc=$rc）"; tail -3 "$d/stop.log" | sed 's/^/    /'; fail=1
+  fi
+
+  echo "· plusarg（+xxx）要传给仿真程序，不是丢给编译器"
+  cat > "$d/pa.v" <<'V'
+module tb;
+  initial begin
+    if ($test$plusargs("FAST")) $display("PLUSARG-OK");
+    else $display("PLUSARG-MISSING");
+    $finish;
+  end
+endmodule
+V
+  ( cd "$d" && timeout 30 "$SELF" --timeout 10 pa.v +FAST > pa.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 0 ] && grep -q 'PLUSARG-OK' "$d/pa.log"; then
+    echo "  ✓ +FAST 传到了 \$test\$plusargs"
+  else
+    echo "  ✗ plusarg 没传到（rc=$rc）"; tail -3 "$d/pa.log" | sed 's/^/    /'; fail=1
+  fi
+
+  echo "· 带参数的选项（-s top）的参数不能被当成源文件"
+  cat > "$d/tworoot.v" <<'V'
+module tb;
+  logic [3:0] q;
+  always_comb q = 4'd7;          // always_comb/logic 要 -g2012 才认
+  initial begin
+    #1 $display("TOP-TB q=%0d", q);
+    $finish;
+  end
+endmodule
+module other;
+  initial $display("TOP-OTHER 不该跑到");
+endmodule
+V
+  ( cd "$d" && timeout 30 "$SELF" -s tb -g2012 tworoot.v > two.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 0 ] && grep -q 'TOP-TB q=7' "$d/two.log" && ! grep -q 'TOP-OTHER' "$d/two.log"; then
+    echo "  ✓ -s 的参数当成了顶层模块名（other 没被 elaborate），-g2012 也没被误判成「写在源文件后面」"
+  else
+    echo "  ✗ -s 那条不对（rc=$rc）"; tail -3 "$d/two.log" | sed 's/^/    /'; fail=1
+  fi
+  ( cd "$d" && timeout 30 "$SELF" tworoot.v -s tb > two2.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 2 ] && grep -q '写在源文件后面' "$d/two2.log"; then
+    echo "  ✓ 反过来写（源文件在前）照旧拦下（rc=2），没吞掉参数就放过去"
+  else
+    echo "  ✗ 源文件在前那条没拦下（rc=$rc）"; tail -3 "$d/two2.log" | sed 's/^/    /'; fail=1
+  fi
+
+  echo "· \$readmemh 打不开文件（vvp 返回 0！）必须被抓出来"
+  cat > "$d/rom.v" <<'V'
+module tb;
+  reg [7:0] mem [0:3];
+  initial begin
+    $readmemh("nope.hex", mem);
+    $display("mem[0]=%h", mem[0]);
+    $finish;
+  end
+endmodule
+V
+  ( cd "$d" && timeout 30 "$SELF" --timeout 10 rom.v > rom.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 4 ] && grep -q 'Unable to open' "$d/rom.log"; then
+    echo "  ✓ 报出来了（rc=4，原文也打出来了）"
+  else
+    echo "  ✗ 没抓出来（rc=$rc，期望 4）"; tail -3 "$d/rom.log" | sed 's/^/    /'; fail=1
+  fi
+
+  echo "· --no-scan 能关掉这项检查"
+  ( cd "$d" && timeout 30 "$SELF" --timeout 10 --no-scan rom.v > rom2.log 2>&1 )
+  rc=$?
+  if [ $rc -eq 0 ]; then
+    echo "  ✓ 关掉之后照 vvp 原本的退出码走（rc=0）"
+  else
+    echo "  ✗ --no-scan 没生效（rc=$rc）"; fail=1
+  fi
+
+  echo "===== 总结 ===== $( [ $fail -eq 0 ] && echo '全部通过' || echo '有失败项' )"
+  return $fail
+}
+
+SELF="$(readlink -f "$0" 2>/dev/null)"; [ -n "$SELF" ] || SELF="$0"
+
+# ---------- 参数处理 ----------
+if [ $# -eq 0 ]; then
+  echo "iverilog-run <testbench.v> [dut.v …] [iverilog 的参数…]" >&2
+  echo "              [--timeout 秒] [--selftest]" >&2
+  exit 2
+fi
+case "$1" in
+  --selftest) selftest; exit $? ;;
+  --help|-h)  awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+esac
+
+declare -a args=()
+declare -a plusargs=()
+out_vvp=""
+saw_source=0
+late_opt=""
+scan=1
+i=1
+while [ $i -le $# ]; do
+  a="${!i}"
+  case "$a" in
+    --timeout)   i=$((i + 1)); [ $i -le $# ] || die "--timeout 后面缺秒数"; TIMEOUT_SECS="${!i}" ;;
+    --timeout=*) TIMEOUT_SECS="${a#--timeout=}" ;;
+    --no-scan)   scan=0 ;;
+    -o)          i=$((i + 1)); [ $i -le $# ] || die "-o 后面缺文件名"
+                 out_vvp="${!i}" ;;
+    -o*)         out_vvp="${a#-o}" ;;
+    # iverilog 里「后面跟一个参数」的那批选项（man 的 OPTIONS 一节逐个核对过，
+    # 13.0 版）：-B -c -f -D -P -p -d -I -L -l -M -m -N -s -T -t -W -y -Y。
+    # 分开写时必须把它后面那个 token 一起吞掉 —— 不吞的话 `-s tb` 里的 tb 会被
+    # 当成源文件（saw_source=1），后面真正的选项就被误判成「写在源文件后面」而退出。
+    # 连写的写法（-DFOO / -Iinc / -y lib…）本来就是**一个** token，落到下面的 -* 分支。
+    -B|-c|-f|-D|-P|-p|-d|-I|-L|-l|-M|-m|-N|-s|-T|-t|-W|-y|-Y)
+      [ $saw_source -eq 0 ] || late_opt="$late_opt $a"
+      args+=("$a")
+      i=$((i + 1)); [ $i -le $# ] || die "$a 后面缺参数（iverilog 的这个选项要跟一个参数）"
+      args+=("${!i}")
+      ;;
+    -*)
+      # iverilog 的规矩：选项必须写在源文件**前面**。写在后面会被当成 plusarg
+      # 原样丢给仿真程序（实测 `iverilog tb.v -o x.vvp` 报的是 "-o: No such file or directory"）。
+      [ $saw_source -eq 0 ] || late_opt="$late_opt $a"
+      args+=("$a")
+      ;;
+    +*)
+      # +xxx 是 plusarg，归仿真程序（vvp）收，不能给 iverilog
+      plusargs+=("$a") ;;
+    *) saw_source=1; args+=("$a") ;;
+  esac
+  i=$((i + 1))
+done
+case "$TIMEOUT_SECS" in
+  ''|*[!0-9]*) die "--timeout 要的是秒数（正整数），给的是：$TIMEOUT_SECS" ;;
+esac
+
+if [ -n "$late_opt" ]; then
+  cat >&2 <<EOF
+iverilog-run: 这些选项写在源文件后面了：$late_opt
+  iverilog 的规矩是**选项必须写在源文件前面** —— 写在后面它不当选项看，会原样传给仿真程序
+  （实测 "iverilog tb.v -o x.vvp" 报的是 "-o: No such file or directory"）。
+  改成把选项放前面再跑，例如：
+      iverilog-run -g2012 --timeout 120 tb.v dut.v
+EOF
+  exit 2
+fi
+
+# -o 一律由本脚本放到最前面（用户自己给的 -o 也挪到前面，位置不会影响它的含义）
+declare -a final_args=("-o")
+if [ -z "$out_vvp" ]; then
+  WORK_VVP="$WORK/sim.vvp"
+  final_args+=("$WORK_VVP")
+else
+  WORK_VVP="$out_vvp"
+  final_args+=("$out_vvp")
+fi
+final_args+=("${args[@]}")
+
+# ---------- 编译 ----------
+"$IVERILOG" "${final_args[@]}"
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "iverilog-run: 编译没过（iverilog 退出码 $rc），没有往下跑。" >&2
+  echo "  看上面的报错。常见两类：" >&2
+  echo "    · 用了 SystemVerilog 的写法（logic / always_ff / interface）→ 要加 -g2012；" >&2
+  echo "    · 信号没声明就直接用（Icarus 13 不再给隐式 wire）→ 补 wire/reg 声明。" >&2
+  exit $rc
+fi
+if [ ! -s "$WORK_VVP" ]; then
+  die "编译说成功了，但 $WORK_VVP 是空的 —— 不往下跑。"
+fi
+
+# ---------- 跑仿真 ----------
+timeout "$TIMEOUT_SECS" "$VVP" -n "$WORK_VVP" "${plusargs[@]}" 2>&1 | tee "$WORK/sim.log"
+rc=${PIPESTATUS[0]}
+if [ $rc -eq 124 ]; then
+  cat >&2 <<EOF
+iverilog-run: 仿真跑了 ${TIMEOUT_SECS} 秒还没结束，已经停下（rc=3）。
+
+多半是 testbench 里**没有 \$finish**：只要时钟还在翻转，vvp 就不会自己停，
+而且一个提示都不给。检查：
+  · testbench 的 initial 块结尾有没有 \$finish；
+  · 时钟有没有在 \$finish 之后还在跑（\$finish 之后的事件不会执行，但没 \$finish 就一直跑）；
+  · 仿真本身确实很长的话，加 --timeout 秒数（例如 --timeout 600）。
+EOF
+  exit 3
+fi
+
+# 跑完了、退出码也是 0，但输出里有 ERROR:/FATAL: —— 这类坑退出码看不出来。
+# 实测：`$error("…")` 只打印不终止、还是返回 0；`$readmemh("不存在的文件")` 打印一句
+# "ERROR: … Unable to open … for reading."、把那块存储器填成 xx，**也返回 0**。
+if [ $rc -eq 0 ] && [ $scan -eq 1 ] && grep -qE '^(ERROR|FATAL):' "$WORK/sim.log"; then
+  {
+    echo "iverilog-run: 仿真跑完了（vvp 退出码 0），但输出里有 Icarus 报的错，退出码给 4："
+    grep -nE '^(ERROR|FATAL):' "$WORK/sim.log" | head -10 | sed 's/^/  /'
+    cat <<'EOF'
+  常见来源：
+    · $readmemh / $readmemb 打不开文件 —— 存储器会被填成 xx，仿真照跑不误；
+    · testbench 里的 $error(...) —— 它只报错不终止，进程还是 0；
+    · 别的 $display 之外的系统任务报错。
+  如果你确实是要打印以 "ERROR:" 开头的行，加 --no-scan 关掉这项检查。
+EOF
+  } >&2
+  exit 4
+fi
+exit $rc
