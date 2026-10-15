@@ -23,9 +23,10 @@ jobs:
       - run: node tools/check-recipes.mjs
       - run: node tools/ci-build.mjs --devkit app/devkit --dry
 
-  # 审计：真打一次包（不上传），静态检查产物，报告贴到 PR 评论（规则见 tools/audit.mjs 开头）
+  # 审计：真打一次包（不上传），静态检查产物（tools/audit.mjs）；再在 termux-docker 里实跑 selftest
+  # （tools/ci-selftest.mjs）。两份结果并成一条 PR 评论。arm64 机器：termux-docker 要原生跑 bionic
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     permissions:
       contents: read
@@ -52,8 +53,14 @@ jobs:
             app/devkit/cache
           key: audit-${{ hashFiles('bases.json') }}
       - name: 审计
-        run: node tools/audit.mjs --devkit app/devkit --changed origin/${{ github.base_ref }} --out audit.md
+        run: node tools/audit.mjs --devkit app/devkit --changed origin/${{ github.base_ref }} --out audit.md || echo "AUDIT_FAILED=1" >> "$GITHUB_ENV"
+      - name: 实跑 selftest
+        run: node tools/ci-selftest.mjs --report audit.md || echo "SELFTEST_FAILED=1" >> "$GITHUB_ENV"
       - name: 贴到 PR
         if: always() && hashFiles('audit.md') != ''
         continue-on-error: true          # 来自 fork 的 PR 没有写评论的权限，报告还在 Summary 里
         run: gh pr comment ${{ github.event.pull_request.number }} --body-file audit.md --edit-last || gh pr comment ${{ github.event.pull_request.number }} --body-file audit.md
+      - name: 结论
+        run: |
+          [ -z "$AUDIT_FAILED" ] || { echo "审计有 ❌，见 PR 评论"; exit 1; }
+          [ -z "$SELFTEST_FAILED" ] || { echo "selftest 没过，见 PR 评论"; exit 1; }
