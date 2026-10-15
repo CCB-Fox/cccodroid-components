@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "id": "libreoffice",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "LibreOffice（无头）", "en": "LibreOffice (headless)" },
+  "desc": {
+    "zh": "LibreOffice 无头模式：把 Office 文档（docx / xlsx / pptx / odt / ods / fodt…）转成 PDF 或别的格式。没有图形界面，只能命令行转换。",
+    "en": "Headless LibreOffice: converts Office documents (docx / xlsx / pptx / odt / ods / fodt …) to PDF and other formats. No GUI, command line conversion only."
+  },
+  "roots": ["libreoffice"],
+  "repos": ["x11"],
+  "exclude": [
+    "mariadb",
+    "perl",
+    "doxygen",
+    "postgresql",
+    "glm",
+    "gst-plugins-base",
+    "gstreamer",
+    "shared-mime-info",
+    "bison",
+    "unixodbc",
+    "libxi",
+    "libtheora",
+    "m4",
+    "libxv",
+    "xdg-utils",
+    "xorg-xprop"
+  ],
+  "bin": ["office-convert"],
+  "selftest": "office-convert --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "license": "MPL-2.0 AND LGPL-3.0",
+  "homepage": "https://www.libreoffice.org",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/office-convert": { "src": "bin/office-convert", "mode": "755" }
+  },
+  "notes": "exclude 的 16 个包见 skill 里的说明：MySQL/PostgreSQL 连接器、Impress 里的视频播放（gstreamer）、Perl 小工具、doxygen、glm、bison/m4、xdg-utils 这些无头转换用不到的东西，闭包里没有别的 ELF 依赖它们（用 readelf -d 逐个核对过，见 PR）。体积从 98 包 / 199 MB / 867 MB 降到 79 包 / 146 MB / 472 MB。"
+}
