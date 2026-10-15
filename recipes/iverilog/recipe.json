@@ -12,6 +12,7 @@
   "bin": ["iverilog", "vvp", "iverilog-run", "vcd2svg"],
   "selftest": "iverilog-run --selftest && vcd2svg --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "eda",
   "license": "GPL-2.0-or-later",
   "homepage": "https://steveicarus.github.io/iverilog/",
   "maintainers": ["greyoak111"],
