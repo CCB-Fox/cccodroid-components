@@ -27,6 +27,14 @@ import subprocess
 import sys
 import tempfile
 
+# 输出实时刷出来：Claude 的 Bash 工具和 `> log` 都是管道/文件，Python 默认块缓冲，
+# 1.28 GB 的下载会 20 分钟一个字都看不见（实测踩过）。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
 PROG = "godot-run"
 
 PREFIX = os.environ.get("CCODROID_PREFIX") or os.environ.get("PREFIX") or ""

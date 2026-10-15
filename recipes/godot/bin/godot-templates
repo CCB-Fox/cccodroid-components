@@ -30,6 +30,14 @@ import urllib.error
 import urllib.request
 import zipfile
 
+# 输出实时刷出来：Claude 的 Bash 工具和 `> log` 都是管道/文件，Python 默认块缓冲，
+# 1.28 GB 的下载会 20 分钟一个字都看不见（实测踩过）。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
 PROG = "godot-templates"
 # 官方 release（github.com/godotengine/godot）。自检/镜像可以设 GODOT_TEMPLATES_BASE 换掉 ——
 # 换了之后 SHA512-SUMS.txt 也跟着从那个 base 取，一定会在输出里打印出来。
@@ -183,7 +191,7 @@ def download(url, dst, expect=None):
             if got - last >= 25 * CHUNK:
                 last = got
                 pct = f" ({got * 100 // total}%)" if total else ""
-                print(f"    … {human(got)}{pct}")
+                print(f"    … {human(got)}{pct}", flush=True)
     print(f"  下完：{human(got)}")
     if expect and got != expect:
         raise RuntimeError(f"下载的大小不对：{got} 字节，SHA512-SUMS.txt 说 {expect}")

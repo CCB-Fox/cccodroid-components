@@ -12,7 +12,7 @@ description: 用 Godot 引擎无头跑游戏工程、导入资源、把工程导
 ## 先自检
 
 ```sh
-godot-run --selftest          # 约 18 秒（装了导出模板时）：版本、最小工程、--import、导出环境、导出
+godot-run --selftest          # 约 20～40 秒（装了导出模板时）：版本、最小工程、--import、导出环境、导出
 godot-templates --selftest    # 1 秒：用本地假 release 把「下载 → sha512 核对 → 安装 → 版本不符」走一遍
 ```
 
@@ -47,7 +47,8 @@ godot-templates use <目录|.tpz>   # 本机已经有副本（比如别人拷来
                               # 就直接用，不下载；**不核对 sha512**（你自己拿来的）
 ```
 
-- **Claude 必须先问用户**再跑 `download`：1.28 GB。用户不同意就别下，用 `use` 指本地副本。
+- **Claude 必须先问用户**再跑 `download`：1.28 GB，**实测约 20 分钟**（这台设备 ~1 MB/s；
+  进度每 25 MB 打一行，会实时刷出来）。用户不同意就别下，用 `use` 指本地副本。
 - 版本要对得上：模板版本 = `godot --version` 去掉 `.termux` 后缀（`4.7.2.stable.termux` →
   `4.7.2.stable`）。对不上就不装，`godot-templates` 会直接说清楚。
 - 只解 Android 的三个文件，1.28 GB 的 tpz 下完就删（临时文件在 `$TMPDIR`）。
