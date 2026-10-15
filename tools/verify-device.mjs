@@ -158,7 +158,8 @@ if (!KEEP && ir.ok) {
   ok(left.length === 0, left.length ? `卸载后还剩 ${left.length} 个它的文件（${left.slice(0, 3).join("；")}）` : "它放进去的文件都清掉了");
   if (r1.skill) ok(!fs.existsSync(path.join(HOME, ".claude", "skills", r1.skill)), `skill ${r1.skill} 删掉了`);
 }
-if (!KEEP) for (const d of depsAdded.reverse()) { const r = await remove(d); log(`   卸掉本脚本装的依赖 ${d}：${r.ok ? "ok" : r.message}`); }
+// 原来就装着的要装回去，它的依赖得留着；--keep 同理
+if (!KEEP && !wasInstalled) for (const d of depsAdded.reverse()) { const r = await remove(d); log(`   卸掉本脚本装的依赖 ${d}：${r.ok ? "ok" : r.message}`); }
 
 const b1 = baseCheck();
 if (b0 && b1) {
