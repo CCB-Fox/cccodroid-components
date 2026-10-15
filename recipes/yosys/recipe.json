@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "yosys",
+  "kind": "termux",
+  "revision": 3,
+  "name": {
+    "zh": "Yosys（Verilog 综合）",
+    "en": "Yosys (Verilog synthesis)"
+  },
+  "desc": {
+    "zh": "Verilog / SystemVerilog 综合与形式化：把 RTL 综合成门级网表，看资源占用、写网表文件、做等价检查和 SAT 求解。命令行批处理，没有图形界面。",
+    "en": "Verilog / SystemVerilog synthesis and formal: synthesise RTL to a gate-level netlist, report resource usage, write netlists, and run equivalence and SAT checks. Command-line batch only (no GUI)."
+  },
+  "roots": [
+    "yosys"
+  ],
+  "bin": [
+    "yosys",
+    "yosys-run"
+  ],
+  "selftest": "yosys-run --selftest",
+  "needs": {
+    "shizuku": false,
+    "display": false,
+    "gpu": false
+  },
+  "category": "eda",
+  "license": "ISC",
+  "homepage": "https://yosyshq.net/yosys/",
+  "maintainers": [
+    "greyoak111"
+  ],
+  "files": {
+    "usr/bin/yosys-run": {
+      "src": "bin/yosys-run",
+      "mode": "755"
+    },
+    "usr/share/cccodroid/components/yosys/abc-exe": {
+      "src": "bin/abc-exe",
+      "mode": "755"
+    }
+  },
+  "notes": "yosys-run 存在的理由：本机的 yosys 走到 abc 会**永远卡住**（没有报错、没有超时），而 `synth` 默认就会走到 abc。机制对着 Yosys 0.70 源码查清了：abc 挑可执行文件时先读设计里的 scratchpad 变量 `abc.exe`（passes/techmap/abc.cc:2040），默认值是 `<yosys 自己所在目录>/yosys-abc`（kernel/yosys.cc:661，不是字面量 \"yosys-abc\"）；然后按**字符串相等**选路（abc.cc:147）——相等走常驻 ABC 协进程（管道协议），本机这条互等卡死；不等则把脚本写成临时文件、跑一次 `<exe> -s -f script`，正常。所以 yosys-run 做的事是：在**用户自己的命令流最前面**插一句 `scratchpad -set abc.exe <组件目录>/abc-exe`（abc-exe 是配方自带的一个小包装，只把参数转给真的 yosys-abc，作用就是当那个“另一个字符串”）。插的位置按 yosys 的执行顺序（kernel/driver.cc:604-668）：`-s`/`-c` 脚本和 `-S` 的 synth 都排在 `-p` **之前**，所以分别写进脚本第一行 / 把 `-S` 换成等价的 `-p \"注入; synth\"`；`-p` 与位置上的 .ys 就插在命令串、文件开头。实测（Yosys 0.70，真机）：不带 -noabc 的 synth、synth_gatemate -luttree、synth_ecp5 -noabc9、.ys 里嵌套 script 调 abc、-c（Tcl）里跑 synth、-S —— 六条以前全部 rc=124 卡死的写法，现在全部 rc=0 并出网表（synth 那条核对过走了 ABC 且 stat 有 $_SDFF_*）。对照实验：scratchpad 里填「跟默认值相同的绝对路径」照样卡（证明是字符串比较），填 abc-exe 就好；绕过 yosys-run 直接调 yosys 仍然卡（selftest 里有这条对照，只提示不算失败）。ABC9 那批（synth_ice40/ecp5/gowin/xilinx/intel…17 条）本来就不卡，且 abc9 不读 abc.exe，不受影响。只有 synth_easic 仍然跑不了 —— 但它现在是**明确报错**（要 eTools 的库，本机没有），不是静默卡死。selftest 约 21 秒，除了原来那几项（综合/写网表/显式 abc/形式等价/synth_ice40），把上面六条老卡死点全跑了一遍。"
+}

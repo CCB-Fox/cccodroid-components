@@ -1,0 +1,16 @@
+#!{{PREFIX}}/bin/sh
+# abc-exe — 给 yosys 的 abc 用的「另一个字符串」（cccodroid 的 yosys 组件）
+#
+# yosys 挑 abc 可执行文件时先看设计里的 scratchpad 变量 abc.exe：
+#   passes/techmap/abc.cc:2040  config.exe_file = scratchpad_get_string("abc.exe", yosys_abc_executable)
+# 默认值 yosys_abc_executable 不是字面量 "yosys-abc"，而是 **`<yosys 自己所在目录>/yosys-abc`**
+#   kernel/yosys.cc:661        yosys_abc_executable = proc_self_dirname() + proc_program_prefix() + "yosys-abc"
+# 然后 abc.cc 按「字符串相等」决定走哪条路：
+#   passes/techmap/abc.cc:147  return exe_file == yosys_abc_executable;
+#   · 相等 → 常驻 ABC 协进程（管道协议、复用同一个 abc 进程，abc.cc:1429 那段）
+#            —— **本机这条会互等卡死**（yosys 喂完脚本不关写端、ABC 停在 `abc 07> ` 等下一句）
+#   · 不等 → 把 abc 脚本写成临时文件，跑一次 `"<exe_file>" -s -f <script>`（abc.cc:1449）
+#            —— 正常跑完，本机实测可行
+# 所以只要 abc.exe 是“另一个字符串”就走第二条路。这个文件存在的唯一目的就是当那个字符串；
+# 它自己不做事，参数原样转给真正的 yosys-abc。
+exec "{{PREFIX}}/bin/yosys-abc" "$@"
