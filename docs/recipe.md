@@ -114,3 +114,4 @@ description: <一句话：什么时候该用它>
 
 **批量真机验证**：`node tools/verify-device.mjs --pending --app "cccodroid <版本>" --by <GitHub 用户名>`
 把当前工具包下所有还没验证（含继承）的组件按依赖顺序挨个验完，最后打印一份合并好的记录。
+加 `--pr` 就直接把通过的记录并进 `verified.json` 开 PR（用 gh，要对本仓库有写权限；不用 clone）。
