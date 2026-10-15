@@ -1,0 +1,116 @@
+#!{{PREFIX}}/bin/bash
+# gnucap-run — 批处理跑 gnucap 电路文件，把「假成功」挡掉（cccodroid 的 gnucap 组件）
+#
+#   gnucap-run <电路文件> [gnucap 的其它参数…]
+#   gnucap-run --selftest
+#
+# 为什么非要有它：**gnucap 出错了也返回 0**。实测下面这些全都是 rc=0：
+#   · 元件名写错        → 只打一句 "XYZ: can't find: 1u"
+#   · 不存在的命令      → " ^ ? nosuchanalysis: no match"
+#   · 命令少了点前缀     → "tran 0 5m" 被当成传输线，" ^ ? need 1 more nodes"
+#   · .print 写在分析后面（探针不生效、结果里没有数据列）→ 一声不吭
+# 所以退出码完全不能信，只能扫输出。这个脚本扫 gnucap 的错误标记（"^ ?" 和
+# "can't find:"），见到就返回 1；另外专门盯一类坑：.print 写了、但输出里一行数据都没有。
+# （少了 .end 不算错 —— 实测 gnucap 会一直读到文件尾，结果是对的。）
+#
+# 退出码：0 真的算出来了；1 有错；2 用法不对
+set -u
+
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+GNUCAP="$PREFIX/bin/gnucap"
+
+# gnucap 每次启动都打这 9 行 banner（版本、版权），和电路无关
+banner() { grep -v -e '^Gnucap : The Gnu Circuit' -e '^Never trust any version' \
+                    -e '^Copyright 1982-2013' -e '^Gnucap comes with ABSOLUTELY' \
+                    -e '^This is free software' -e '^to redistribute it' \
+                    -e '^the GNU General Public License' -e '^See the file "COPYING"' \
+                    -e '^main version: ' -e '^core-lib version: ' -e '^default plugins: '; }
+errline() { grep -E '\^ \?|: can'\''t find:|^[^ ]+: can'\''t find:'; }
+
+selftest() {
+  local t rc=0 last
+  t="$(mktemp -d "${TMPDIR:-/tmp}/gnucap-selftest.XXXXXX")" || { echo "✗ 建不了临时目录"; return 1; }
+
+  # RC 充电：τ = RC = 1 kΩ × 1 µF = 1 ms，跑到 5τ，末值应该是 5·(1−e⁻⁵) = 4.96631 V
+  # 步长要给细（0.05 ms）：gnucap 的内部步长跟打印间隔走，用 1 ms 的粗步长会有约 0.3% 的数值误差
+  cat > "$t/rc.ckt" <<'CKT'
+* RC 充电自检
+V1 in 0 PULSE(0 5 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.print tran v(out)
+.tran 0 5m 0.05m
+.end
+CKT
+  if ! ( cd "$t" && "$GNUCAP" -b rc.ckt > log 2>&1 ); then
+    echo "✗ gnucap 退出码非 0"; banner < "$t/log" | tail -5 | sed 's/^/    /'; rc=1
+  fi
+  if errline < "$t/log" | head -1 | grep -q .; then
+    echo "✗ gnucap 报了错："; errline < "$t/log" | head -5 | sed 's/^/    /'; rc=1
+  fi
+  last="$(awk '$1=="0.005" {v=$2} END{if (v=="") print ""; else print v}' "$t/log" 2>/dev/null)"
+  if [ -z "$last" ]; then
+    echo "✗ 结果里没有 t=5ms 那一行（探针没生效？）"; banner < "$t/log" | tail -5 | sed 's/^/    /'; rc=1
+  elif awk -v a="$last" 'BEGIN{ d=a-4.966311; if (d<0) d=-d; exit !(d < 0.005) }'; then
+    echo "✓ RC 充电：5τ 处 v(out)=${last} V（理论 4.96631 V）"
+  else
+    echo "✗ RC 充电末值不对：$last V，应该是 4.96631 V 附近"; rc=1
+  fi
+
+  rm -rf "$t"
+  if [ $rc -eq 0 ]; then
+    echo "===== 总结 ===== 瞬态=OK 末值=${last}V"
+  else
+    echo "===== 总结 ===== 瞬态=FAIL"
+  fi
+  return $rc
+}
+
+usage() {
+  sed -n '2,16p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in
+  --selftest) selftest; exit $? ;;
+  -h|--help) usage 0 ;;
+  "") usage 2 ;;
+esac
+
+[ -x "$GNUCAP" ] || { echo "gnucap-run: 找不到 $GNUCAP —— gnucap 组件没装好？" >&2; exit 1; }
+
+CKT="$1"; shift
+[ -f "$CKT" ] || {
+  if [ -d "$CKT" ]; then echo "gnucap-run: 这是个目录，要给一个电路文件：$CKT" >&2
+  else echo "gnucap-run: 找不到电路文件：$CKT" >&2; fi
+  exit 1
+}
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/gnucap-run.XXXXXX")" || exit 1
+trap 'rm -f "$LOG"' EXIT
+"$GNUCAP" -b "$@" "$CKT" > "$LOG" 2>&1
+
+banner < "$LOG"
+
+if errline < "$LOG" | head -1 | grep -q .; then
+  echo "gnucap-run: 电路文件里有错（gnucap 的退出码是 0，别信）：" >&2
+  errline < "$LOG" | sed 's/^/  /' >&2
+  cat >&2 <<'HINT'
+  常见来源：
+    · 命令要以点开头（.tran / .print / .op / .dc / .ac），写成 tran 会被当成传输线元件；
+    · 元件行的格式是「名字 节点 节点 … 值」，节点数和元件类型对不上就会这么说；
+    · .print 必须写在分析命令**前面**，写在后面不报错但结果里没有数据列。
+HINT
+  exit 1
+fi
+
+# .print 写了、结果却一行数据都没有 —— 最常见的原因是 .print 写在分析命令后面。
+# 但网表自己把输出重定向到文件时（`.tran … > out.dat`），stdout 上本来就没有数据，别误报。
+if grep -qE '^\s*\.print' "$CKT" && ! grep -q '>' "$CKT" \
+   && ! grep -qE '^\s*[0-9][0-9.eE+-]*[[:space:]]+[0-9-]' "$LOG"; then
+  echo "gnucap-run: 结果里没有任何数据列 —— .print 是不是写在分析命令后面了？" >&2
+  echo "           gnucap 按顺序执行：先 .print 声明要看的量，再写 .tran/.op/.dc/.ac。" >&2
+  exit 1
+fi
