@@ -12,13 +12,14 @@
   "roots": ["glibc"],
   "bin": ["clvk-info"],
   "selftest": "clvk-info",
-  "needs": { "shizuku": false, "display": false, "gpu": true },
+  "needs": { "shizuku": false, "display": false, "gpu": "adreno" },
   "license": "Apache-2.0",
   "homepage": "https://github.com/kpet/clvk",
   "maintainers": ["greyoak111"],
+  "requires": ["gpu-driver-glibc"],
   "fetch": {
     "usr/glibc/lib/libOpenCL.so": {
-      "url": "https://github.com/greyoak111/cccodroid-gpu-driver/releases/download/clvk-2026.10.15/libOpenCL.so",
+      "url": "https://github.com/greyoak111/cccodroid-gpu-driver-snapdragon/releases/download/clvk-2026.10.15/libOpenCL.so",
       "sha256": "0dc0b5e04ba3047e31712bb7baf80f4b90d4b8ddb0f485a815e4015b069cdded",
       "source": "clvk",
       "version": "2026.10.15",
@@ -26,10 +27,10 @@
     },
     "usr/glibc/lib/libOpenCL.so.1": { "link": "libOpenCL.so" },
     "usr/libexec/devkit/components/clvk-glibc/clprobe": {
-      "url": "https://github.com/greyoak111/cccodroid-gpu-driver/releases/download/clvk-2026.10.15/clprobe",
+      "url": "https://github.com/greyoak111/cccodroid-gpu-driver-snapdragon/releases/download/clvk-2026.10.15/clprobe",
       "sha256": "cd498af26f1921f1f297496d7b76f91e18575deeeb6027365a013c990feae805",
       "mode": "755",
-      "source": "cccodroid-gpu-driver",
+      "source": "cccodroid-gpu-driver-snapdragon",
       "why": "组件自带的 OpenCL 自测程序（枚举平台/设备 → 编译一个向量加 kernel → 真跑一遍比对结果）。它 dlopen libOpenCL.so，所以 clvk 换了版本它也不用重编"
     },
     "usr/glibc/include/CL/cl.h": {
@@ -57,5 +58,5 @@
   "files": {
     "usr/bin/clvk-info": { "src": "bin/clvk-info", "mode": "755" }
   },
-  "notes": "为什么走 fetch：glibc 侧的 OpenCL 只能自编（官方仓库的 clvk 是 bionic，termux-glibc 里没有 OpenCL）。构件来自 cccodroid-gpu-driver 仓库 CI 的 Release（ubuntu-24.04-arm，CLVK_CLSPV_ONLINE_COMPILER=ON），已 llvm-strip。换版本时：发新 Release → 本配方改 url/sha256/version + revision 加一。"
+  "notes": "为什么走 fetch：glibc 侧的 OpenCL 只能自编（官方仓库的 clvk 是 bionic，termux-glibc 里没有 OpenCL）。libOpenCL.so 由 greyoak111/cccodroid-gpu-driver-snapdragon 的 build-clvk 工作流编出（run 38633597506，ubuntu-24.04-arm，CLVK_CLSPV_ONLINE_COMPILER=ON），llvm-strip 后传到 Release clvk-2026.10.15；clprobe 的源码是同一仓库的 glibc/lib/clprobe.c。依赖 gpu-driver-glibc（Vulkan 加载器与 glibc 侧 Turnip）。换上游版本：发新 Release → 本配方改 url/sha256/version（revision 可回到 1）；只改 skill 或脚本：revision 加一（发布版本是 <version>-r<revision>）。"
 }
