@@ -10,9 +10,24 @@ const KINDS = new Set(["termux", "glibc"]);
 // 不光是 Release —— PR 里的提交（哪怕后来删了）也能经 raw.githubusercontent.com/<本仓库>/<提交>/… 取到，
 // codeload、api 同理，所以整个 github.com / githubusercontent.com 下指向本仓库的都拦。
 const SELF = /^https:\/\/(?:[a-z0-9-]+\.)*(?:github\.com|githubusercontent\.com)\/(?:repos\/)?greyoak111\/cccodroid-components(?:[/.?#]|$)/i;
+// 配方自带的脚本与 skill 里不许关证书校验：关了，取料时「核对 sha256」用的索引本身就可能被换掉
+const INSECURE = [
+  [/\bcurl\b[^\n]*\s(?:-[A-Za-z]*k[A-Za-z]*|--insecure)(?=\s|$|["',\]])/, "curl -k / --insecure"],
+  [/\bwget\b[^\n]*--no-check-certificate/, "wget --no-check-certificate"],
+  [/\bverify\s*=\s*False\b/, "verify=False"],
+  [/_create_unverified_context|\bCERT_NONE\b/, "Python 关证书校验"],
+  [/rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["']?0/, "Node 关证书校验"],
+  [/GIT_SSL_NO_VERIFY|http\.sslVerify\s*=?\s*false/i, "git 关证书校验"],
+];
+// 脚本里自己下东西（不走 fetch）也要核对：出现下载调用、却通篇没有 sha256 的，算没校验
+const DOWNLOAD = /\b(?:curl|wget|urlopen|urlretrieve|requests\.get)\b|\bfetch\(\s*["'`]https?:/;
+const HASHED = /sha256|hashlib|sha256sum|createHash/i;
+// 走 Turnip / 厂商 OpenCL 的包只对骁龙有意义：带了就必须写 needs.gpu: "adreno"
+const ADRENO_PKG = /^(?:mesa-vulkan-icd-freedreno|opencl-vendor-driver|clvk)(?:-glibc)?$/;
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 let bad = 0;
 const err = (r, m) => { console.log(`✗ ${r}: ${m}`); bad++; };
-const ids = new Set(), wanted = new Map();          // wanted：requires 了谁（循环完再看在不在）
+const ids = new Set(), wanted = [], adreno = new Map();   // wanted：[被依赖, 依赖者]；adreno：id → 是否写了 needs.gpu: "adreno"
 for (const r of recipes()) {
   const n = path.basename(r.dir);
   if (r.schema !== 1) err(n, "schema 必须是 1");
@@ -50,7 +65,7 @@ for (const r of recipes()) {
   }
   if (r.requires !== undefined) {
     if (!Array.isArray(r.requires) || r.requires.some((d) => typeof d !== "string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d) || d === r.id)) err(n, "requires 是组件 id 的数组（不能写自己）");
-    else for (const d of r.requires) wanted.set(d, n);
+    else for (const d of r.requires) wanted.push([d, n]);
   }
   // needs：gpu 可以写 "adreno" —— 只能用在高通骁龙上（走 /dev/kgsl-3d0），App 在别家 SoC 上直接不给装
   for (const [k, v] of Object.entries(r.needs || {})) {
@@ -60,8 +75,25 @@ for (const r of recipes()) {
   const sk = path.join(r.dir, "skill", "SKILL.md");
   if (!fs.existsSync(sk)) err(n, "缺 skill/SKILL.md（告诉 Claude 怎么用这个组件）");
   else if (!/^---\nname: [a-z0-9-]+\ndescription: .+\n---/m.test(fs.readFileSync(sk, "utf8"))) err(n, "SKILL.md 开头要有 name / description");
+  adreno.set(r.id, !!(r.needs && r.needs.gpu === "adreno"));
+  if ((r.roots || []).some((p) => ADRENO_PKG.test(p)) && !(r.needs && r.needs.gpu === "adreno"))
+    err(n, `roots 带了只对骁龙有用的包（${r.roots.filter((p) => ADRENO_PKG.test(p)).join(", ")}），needs.gpu 要写 "adreno"`);
+  for (const f of walk(r.dir)) {
+    const rel = path.relative(r.dir, f);
+    if (/(^|\/)__pycache__\/|\.py[co]$/.test(rel)) { err(n, "别提交 Python 编译缓存: " + rel); continue; }
+    if (path.basename(f) === "recipe.json") continue;
+    const buf = fs.readFileSync(f);
+    if (buf.includes(0)) continue;                     // 二进制不扫（files 本来也不该带二进制，评审时看）
+    const text = String(buf), md = f.endsWith(".md");
+    // 注释行不算（脚本里常有「别加 -k」这种提醒）；skill 是给 Claude 照着做的，整篇都算
+    const code = md ? text : text.split("\n").filter((l) => !/^\s*(?:#|\/\/)/.test(l)).join("\n");
+    for (const [re, what] of INSECURE) if (re.test(code)) err(n, `${rel} 关了证书校验（${what}）`);
+    if (!md && DOWNLOAD.test(code) && !HASHED.test(text)) err(n, `${rel} 会下载东西，但没看到 sha256 校验（下载的文件要核对哈希）`);
+  }
   console.log(`  ${n} ok?`);
 }
+// 依赖了骁龙专用组件的，自己也只能在骁龙上用：不写的话 App 在别家设备上显示能装、依赖却永远装不上
+for (const [d, by] of wanted) if (adreno.get(d) && !adreno.get(by)) err(by, `requires 了骁龙专用的 ${d}，自己的 needs.gpu 也要写 "adreno"`);
 // requires 了本仓库没有的组件：可能是预置组件（cccodroid 自己发的，比如 chromium），提醒一下、不算错
 for (const [d, by] of wanted) if (!ids.has(d)) console.log(`⚠ ${by} requires 了本仓库没有的组件 ${d}（预置组件？确认一下名字）`);
 if (bad) { console.log(`\n${bad} 个问题`); process.exit(1); }
