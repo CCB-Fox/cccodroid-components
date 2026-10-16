@@ -1,5 +1,7 @@
 #!{{PREFIX}}/bin/sh
 # cf —— 直接调 Cloudflare REST API（DNS、SSL、邮件路由这些 wrangler 管不到的）。默认只读，写要 CF_WRITE=1
+# cf --selftest：真起一个 wrangler dev 打请求（不用登录）
+[ "$1" = "--selftest" ] && CF_BIN={{PREFIX}}/bin exec {{PREFIX}}/bin/node {{PREFIX}}/lib/cloudflare/selftest.mjs
 C="$HOME/.config/cloudflare"
 [ -z "$CLOUDFLARE_API_TOKEN" ] && [ -f "$C/token" ] && export CLOUDFLARE_API_TOKEN="$(cat "$C/token")"
 exec {{PREFIX}}/bin/node {{PREFIX}}/lib/cloudflare/cf.mjs "$@"

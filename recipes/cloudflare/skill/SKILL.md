@@ -28,6 +28,7 @@ description: 用户要部署或调试 Cloudflare Workers / Pages、管理 R2 / K
 
 ```sh
 wrangler whoami
+cf --selftest                            # 自检：起一个 wrangler dev 打 40 个请求，不用登录
 wrangler init my-worker --yes            # 或自己写 wrangler.toml + src/index.js
 wrangler dev --ip 127.0.0.1 --port 8787  # 本地运行；长时间运行的命令放后台，用完结束它
 wrangler deploy                          # 对外发布 —— 先问用户

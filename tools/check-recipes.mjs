@@ -22,7 +22,7 @@ const INSECURE = [
   [/GIT_SSL_NO_VERIFY|http\.sslVerify\s*=?\s*false/i, "git 关证书校验"],
 ];
 // 脚本里自己下东西（不走 fetch）也要核对：出现下载调用、却通篇没有 sha256 的，算没校验
-const DOWNLOAD = /\b(?:curl|wget|urlopen|urlretrieve|requests\.get)\b|\bfetch\(\s*["'`]https?:/;
+const DOWNLOAD = /\b(?:curl|wget|urlopen|urlretrieve|requests\.get)\b|\bfetch\(\s*["'`]https?:\/\/(?!(?:127\.0\.0\.1|localhost)[:/])/;   // 访问本机回环（自检起的服务）不算下载
 const HASHED = /sha256|hashlib|sha256sum|createHash/i;
 // 走 Turnip / 厂商 OpenCL 的包只对骁龙有意义：带了就必须写 needs.gpu: "adreno"
 const ADRENO_PKG = /^(?:mesa-vulkan-icd-freedreno|opencl-vendor-driver|clvk)(?:-glibc)?$/;
