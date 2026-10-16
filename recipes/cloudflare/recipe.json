@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "cloudflare",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "version": "4.151.1",
   "name": { "zh": "Cloudflare（wrangler）", "en": "Cloudflare (wrangler)" },
   "desc": {
@@ -23,12 +23,12 @@
   },
   "fetch": {
     "usr/lib/cloudflare/bin/workerd": {
-      "url": "https://github.com/greyoak111/workerd-android/releases/download/v1.20261012.1/workerd",
-      "sha256": "6f806f3d6ff1307cf4927ed455f0e93f440cafc15d0d5ed2915dbae02319f083",
+      "url": "https://github.com/greyoak111/workerd-android/releases/download/v1.20261012.1/workerd-cc.codroid",
+      "sha256": "2a0e6f9d434db7e2d24712a0ccb8ca615fc8265858417fdf8ccb0908fef1d7ee",
       "mode": "755",
       "source": "github",
       "version": "1.20261012.1",
-      "why": "wrangler dev 的本地运行时。官方只有 glibc 版且内置 tcmalloc 假定 48 位地址（安卓 39 位，会随机崩）；这份是官方配置原样编译、只关 tcmalloc 的构建（构建脚本与日志在 greyoak111/workerd-android），版本与 wrangler 4.151.1 依赖的 workerd 一致"
+      "why": "wrangler dev 的本地运行时。官方只有 glibc 版且内置 tcmalloc 假定 48 位地址（安卓 39 位，会随机崩）；这份是官方配置原样编译、只关 tcmalloc 的构建（构建脚本与日志在 greyoak111/workerd-android），版本与 wrangler 4.151.1 依赖的 workerd 一致。用的是 workerd-cc.codroid：同一份构建只把解释器改成本应用的 glibc 加载器（仓库里 cc-codroid.yml 用 patchelf 改），别的字节不动"
     }
   },
   "files": {
