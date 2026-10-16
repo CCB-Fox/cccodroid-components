@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "lilypond",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "LilyPond（制谱/作曲）", "en": "LilyPond (music engraving)" },
   "desc": {
     "zh": "用文本写乐谱：一段 .ly 代码排版成出版级的 PDF 乐谱，也能出 PNG / SVG / MIDI。多声部、歌词、和弦指法图、鼓谱、早期音乐记谱都支持。没有图形界面，也不需要 —— 乐谱就是纯文本，改一个音符重排一次；成品 PDF 在应用内查看器里就能看。带 lilypond-book（嵌进 LaTeX/HTML 文档）、musicxml2ly / midi2ly / abc2ly（把别的格式转成 .ly）、convert-ly（旧版本语法升级）。",
