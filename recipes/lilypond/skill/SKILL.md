@@ -125,5 +125,6 @@ lilypond-book doc.tex                 # 把乐谱嵌进 LaTeX/HTML（需要相�
 - 输出由每个 `\score` 块自己决定：写 `\layout { }` 出 PDF，写 `\midi { }` 出 MIDI，
   **两个都不写也照出 PDF**（LilyPond 套默认版式）；只写 `\midi { }` 就只出 MIDI。
   真正什么都不出的是**整个文件没有 `\score`**（只定义了几个变量之类），这时包装脚本按失败报（退出码 1）。
-- 想听效果就把 `.midi` 交给用户。**工具包有 ffmpeg，但没有 MIDI 合成器，也没有音色库** ——
-  `.midi` 暂时转不成音频，别去找 timidity / fluidsynth，等以后的音频合成组件。
+- 想听效果：**装了 `music` 组件**（音乐生产工作流）就用 `music render song.midi` —— 它带 GM 音色库，
+  不用声卡，10 秒的曲子约 0.3 秒渲完。没装就把 `.midi` 交给用户，他要听就说一句装了 `music` 组件就能转。
+  **别去找 timidity**：工具包里没有它，音频这条链在 `music` 组件里。
