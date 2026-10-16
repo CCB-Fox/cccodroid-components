@@ -2,17 +2,16 @@
 # music — 音乐生产工作流（cccodroid 的 music 组件）
 #
 #   music render <输入.mid> [输出.wav] [--bank <音色库.sf2>] [--gain 0.8] [--rate 44100]
-#   music synth  <脚本.scd> [输出.wav] [--rate 44100]
-#   music banks                              # 列出可用音色库
+#   music synth  <脚本.scd> [输出.wav] [--rate 44100] [--timeout 秒]
+#   music banks                              # 列出可用音色库 + 许可原文位置
 #   music --selftest | --where | -h
 #
 # render：fluidsynth 按音色库把 MIDI 渲染成 WAV。不用声卡、不按实时走 ——
 #   10 秒的曲子约 0.3 秒渲完。不给 --bank 就用组件内置的 GeneralUser GS（GM：128 乐器 + 鼓组）。
 # synth：SuperCollider 离线渲染（NRT）—— 脚本只负责把谱面写成 .osc，
-#   真正的合成由 scsynth 完成，全程不实时出声、不占声卡。
-#   脚本结尾必须按 skill 里的模板把谱面写出来（见下面 synth 的说明）。
+#   真正的合成由 scsynth 完成，全程不实时出声、不占声卡；两步都带超时保护（默认 120 秒）。
 #
-# 退出码：0 成功；1 失败；2 用法不对
+# 退出码：0 成功；1 失败（含超时）；2 用法不对；3 渲出来了但整段静音
 set -u
 
 PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
@@ -20,6 +19,7 @@ PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
 
 COMP="$PREFIX/share/cccodroid/components/music"
 BANK="$COMP/GeneralUser-GS.sf2"
+LICENSE="$COMP/GeneralUser-GS-LICENSE.txt"
 FLUID="$PREFIX/bin/fluidsynth"
 SCLANG="$PREFIX/bin/sclang"
 SCSYNTH="$PREFIX/bin/scsynth"
@@ -40,7 +40,7 @@ export TMPDIR="$TMP"
 die() { echo "music: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,15p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  sed -n '2,14p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -99,31 +99,36 @@ cmd_render() {
   fi
   # fluidsynth 会把「这个音色库里没有 bank0/prog0」这类事只写一句在日志里，
   # 而输出照旧是个合法 WAV —— 全静音。踩过一次（fluid-soundfont-gs 不是 GM 库），
-  # 所以这里量一下 RMS，静音就明确警告，别让人对着无声文件找问题。
+  # 所以这里量一下 RMS。静音**单独给退出码 3**：调用方（尤其是 Claude）常常只看
+  # 退出码，光在 stderr 警告会被漏掉；3 说明「文件生成了，但它没声音」。
   local snd=2
   has_sound "$out" && snd=0 || snd=$?
   if [ "$snd" = 1 ]; then
-    echo "⚠ $out 渲染出来了，但整段是静音 —— 音色库不是 GM 音色库？（bank 0 / prog 0 没有音色）" >&2
+    echo "⚠ $out 渲染出来了，但整段是静音（退出码 3）—— 音色库不是 GM 音色库（bank 0 / prog 0 没音色）？还是曲子里根本没有音符？" >&2
     grep -i "no preset\|error" "$log" | head -3 | sed 's/^/  /' >&2
-  else
-    echo "✓ $out（$(stat -c%s "$out") 字节）"
+    rm -f "$log"
+    exit 3
   fi
+  echo "✓ $out（$(stat -c%s "$out") 字节）"
   rm -f "$log"
 }
 
 # ── synth：SuperCollider 离线渲染 ──────────────────────────────────────
 cmd_synth() {
-  local in="" out="" rate=44100
+  local in="" out="" rate=44100 tmo=120
   while [ $# -gt 0 ]; do
     case "$1" in
-      --rate)   [ $# -ge 2 ] || die "--rate 缺参数"; rate="$2"; shift 2 ;;
-      --rate=*) rate="${1#*=}"; shift ;;
-      -h|--help) usage 0 ;;
-      -*)       die "不认识的参数：$1（-h 看用法）" ;;
-      *)        if [ -z "$in" ]; then in="$1"; elif [ -z "$out" ]; then out="$1"
-                else die "多余的参数：$1"; fi; shift ;;
+      --rate)      [ $# -ge 2 ] || die "--rate 缺参数"; rate="$2"; shift 2 ;;
+      --rate=*)    rate="${1#*=}"; shift ;;
+      --timeout)   [ $# -ge 2 ] || die "--timeout 后面缺秒数"; tmo="$2"; shift 2 ;;
+      --timeout=*) tmo="${1#*=}"; shift ;;
+      -h|--help)   usage 0 ;;
+      -*)          die "不认识的参数：$1（-h 看用法）" ;;
+      *)           if [ -z "$in" ]; then in="$1"; elif [ -z "$out" ]; then out="$1"
+                   else die "多余的参数：$1"; fi; shift ;;
     esac
   done
+  case "$tmo" in ''|*[!0-9]*) die "--timeout 要的是秒数（正整数），给的是：$tmo" ;; esac
   [ -n "$in" ] || die "要给一个 .scd 脚本：music synth <脚本.scd> [输出.wav]"
   [ -f "$in" ] || die "找不到脚本：$in"
   [ -x "$SCLANG" ] && [ -x "$SCSYNTH" ] || die "找不到 sclang/scsynth —— 组件没装好？"
@@ -137,8 +142,18 @@ cmd_synth() {
   # ⚠️ 不要让脚本自己调 scsynth：SC 里的 String.system 在本机（安卓/bionic）会挂死，
   #    而且 Score.recordNRT 是异步的，脚本一 0.exit 就把渲染掐死了（表现为「打印了
   #    RENDERED、退出码 0、没有文件」）。所以拆成两步，由这个脚本接着做第二步。
-  MUSIC_OSC="$osc" "$SCLANG" -a --include-path "$SCLIB" "$in" > "$log" 2>&1
+  # ⚠️ 两端都包 timeout：脚本漏写 0.exit、或者调了本机会挂死的 String.system 时，
+  #    sclang 永远不退出，调用方（Claude 的 Bash 工具）跟着一起卡死 ——
+  #    iverilog / yosys 栽过同一类坑。stdin 也掐掉：非交互，别在 EOF 上等。
+  MUSIC_OSC="$osc" timeout -k 5 "$tmo" "$SCLANG" -a --include-path "$SCLIB" "$in" </dev/null > "$log" 2>&1
   local rc=$?
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+    echo "music: sclang 超时：脚本结尾是不是漏了 0.exit？（跑满 ${tmo} 秒，已停下）" >&2
+    echo "  另外别在脚本里调 String.system / Score.recordNRT —— 那也会挂住；渲染交给 music synth 做。" >&2
+    echo "  确实要跑更久就加 --timeout 秒数（例如 --timeout 600）。" >&2
+    tail -5 "$log" | sed 's/^/  /' >&2
+    rm -f "$log" "$osc"; exit 1
+  fi
   if [ ! -s "$osc" ]; then
     echo "music: 脚本没有写出谱面（sclang 退出码 $rc）。" >&2
     echo "  结尾要按 skill 的模板写：score.writeOSCFile(\"MUSIC_OSC\".getenv, 0, nil); 0.exit;" >&2
@@ -148,7 +163,13 @@ cmd_synth() {
 
   # 第二步：scsynth 离线渲染。插件目录同样是编译期写死的，用 -U 指过来
   # （SC_PLUGIN_PATH 这个环境变量 scsynth 不认）。
-  "$SCSYNTH" -N "$osc" _ "$out" "$rate" WAV int16 -i 0 -o 2 -U "$SCPLUG" >> "$log" 2>&1
+  timeout -k 5 "$tmo" "$SCSYNTH" -N "$osc" _ "$out" "$rate" WAV int16 -i 0 -o 2 -U "$SCPLUG" >> "$log" 2>&1
+  local src=$?
+  if [ "$src" = 124 ] || [ "$src" = 137 ]; then
+    echo "music: scsynth 离线渲染超时（跑满 ${tmo} 秒，已停下）—— 合成是不是卡在什么上了？" >&2
+    tail -5 "$log" | sed 's/^/  /' >&2
+    rm -f "$log" "$osc"; exit 1
+  fi
   if ! wav_ok "$out"; then
     echo "music: 离线渲染失败：" >&2
     tail -8 "$log" | sed 's/^/  /' >&2
@@ -164,6 +185,12 @@ cmd_banks() {
   echo "内置："
   if [ -f "$BANK" ]; then
     echo "  $BANK  ($(( $(stat -c%s "$BANK") / 1048576 )) MB)  GeneralUser GS —— GM，128 乐器 + 鼓组"
+    echo "  许可原文：$LICENSE"
+    if [ -f "$LICENSE" ]; then
+      echo "    （要商用发行的话先读一遍：作者声明部分采样的来源无法 100% 确认）"
+    else
+      echo "    ⚠ 许可原文不在（组件没装全？）"
+    fi
     found=1
   else
     echo "  （没有！组件没装好？）"
@@ -180,6 +207,7 @@ cmd_banks() {
 cmd_where() {
   echo "组件目录   $COMP"
   echo "音色库     $BANK（$( [ -f "$BANK" ] && echo "有，$(( $(stat -c%s "$BANK") / 1048576 )) MB" || echo "没有" )）"
+  echo "许可原文   $LICENSE（$( [ -f "$LICENSE" ] && echo "有" || echo "没有" )）"
   echo "fluidsynth $FLUID"
   echo "sclang     $SCLANG"
   echo "scsynth    $SCSYNTH"
@@ -189,13 +217,14 @@ cmd_where() {
   echo "临时目录   $TMPDIR"
 }
 
-# ── selftest：四件事各走一遍真链路 ────────────────────────────────────
+# ── selftest：五件事各走一遍真链路 ────────────────────────────────────
 # 1) MIDI → WAV（fluidsynth + 内置音色库）2) 从零合成（SuperCollider NRT）
 # 3) 后期（sox）                            4) 分析（aubio 基频）
-# 全程不联网、约 10 秒内结束、只写自己的临时目录。
+# 5) 超时保护（卡住的脚本会被停下，不是陪着卡死）
+# 全程不联网、几秒内结束、只写自己的临时目录。
 selftest() {
   local base rc=0 t
-  local f_render=FAIL f_synth=FAIL f_post=FAIL f_anal=FAIL
+  local f_render=FAIL f_synth=FAIL f_post=FAIL f_anal=FAIL f_tmo=FAIL
   t="$(mktemp -d "$TMP/music-selftest.XXXXXX")" || { echo "✗ 建不了临时目录"; return 1; }
   base="$t"
 
@@ -256,11 +285,24 @@ SCD
     echo "✗ 找不到 aubiopitch 或合成结果"; rc=1
   fi
 
+  # ── 5) 超时保护 ────────────────────────────────────────────────
+  # 故意写一个「不写谱面、也不退出」的脚本：漏了 0.exit 的脚本会让 sclang 一直挂着，
+  # 调用方（Claude 的 Bash 工具）跟着卡死 —— iverilog / yosys 栽过同一类坑。
+  # 这里给 3 秒，必须自己停下，而不是等它。
+  printf '%s\n' '(' 'while { true } { 1 };' ')' > "$t/hang.scd"
+  if ( cmd_synth --timeout 3 "$t/hang.scd" "$t/hang.wav" ) >"$t/r5" 2>&1; then
+    echo "✗ 不写谱面也不退出的脚本居然成功了（超时保护没生效？）"; rc=1
+  elif grep -q "超时" "$t/r5"; then
+    echo "✓ 超时保护：卡住的脚本 3 秒后自己停下"; f_tmo=OK
+  else
+    echo "✗ 卡住的脚本没被超时停下：$(tail -2 "$t/r5" | tr '\n' ' ')"; rc=1
+  fi
+
   rm -rf "$t"
   local fv sv
   fv="$("$FLUID" --version 2>&1 | head -1 | awk '{print $NF}')"
   sv="$("$SCSYNTH" -v 2>&1 | head -1 | awk '{print $2}')"
-  echo "===== 总结 ===== 渲染=$f_render 合成=$f_synth 后期=$f_post 分析=$f_anal fluidsynth=$fv scsynth=$sv"
+  echo "===== 总结 ===== 渲染=$f_render 合成=$f_synth 后期=$f_post 分析=$f_anal 超时=$f_tmo fluidsynth=$fv scsynth=$sv"
   return $rc
 }
 

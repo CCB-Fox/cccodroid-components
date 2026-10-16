@@ -5,14 +5,14 @@ description: 用户要把音乐变成能听的音频、或要从零做声音时�
 
 # music：音乐生产工作流
 
-**先跑自检**（约 10 秒，会把四件事各走一遍真链路，全程不联网）：
+**先跑自检**（约 5 秒，会把五件事各走一遍真链路，全程不联网）：
 
 ```sh
 music --selftest
-# ===== 总结 ===== 渲染=OK 合成=OK 后期=OK 分析=OK fluidsynth=2.6.1 scsynth=3.14.1
+# ===== 总结 ===== 渲染=OK 合成=OK 后期=OK 分析=OK 超时=OK fluidsynth=2.6.1 scsynth=3.14.1
 ```
 
-`music --where` 看各工具装在哪、音色库在不在。`music banks` 看有哪些音色库。
+`music --where` 看各工具装在哪、音色库和许可原文在不在。`music banks` 看有哪些音色库、许可原文在哪。
 
 四件工具：**fluidsynth**（MIDI → 音频）、**SuperCollider**（从零合成 / 算法作曲，离线渲染）、
 **sox**（后期）、**aubio**（分析）。全部无头、命令行驱动，不需要图形界面，也不需要声卡。
@@ -28,6 +28,10 @@ music render 曲子.mid --gain 1.2 --bank 别的.sf2
 - 不给 `--bank` 就用**内置的 GeneralUser GS**（GM 音色库：128 种乐器 + 鼓组，31 MB，随组件装着）。
 - 不用声卡、不按实时走：**10 秒的曲子约 0.3 秒**渲完，可以放心渲染长曲子。
 - 成品写到 `/sdcard/cccodroid/`（用户能在应用内查看器里直接播放）。
+- **退出码 3 = 渲出来了，但整段静音**（文件留着，不删）：要么音色库不是 GM 音色库，
+  要么曲子里根本没有音符。单独给一个码是有意的 —— 只看「非 0 即失败」会漏掉「成功但没声音」。
+- 音色库的**许可原文**跟着组件装着：`music banks` 会打出它的路径（`GeneralUser-GS-LICENSE.txt`）。
+  要商业发行时先读一遍 —— 作者声明部分采样的来源无法 100% 确认，这跟"能打包进软件"是两件事。
 
 **从 lilypond 组件的乐谱过来**（`\midi { }` 那一块就是给这步用的）：
 
@@ -75,6 +79,7 @@ score.writeOSCFile("MUSIC_OSC".getenv, 0, nil);               // ← 这两行�
 ```sh
 music synth piece.scd                 # → piece.wav
 music synth piece.scd 出.wav --rate 48000
+music synth piece.scd --timeout 600   # 卡住时最多等 600 秒（默认 120）
 ```
 
 - `\s_new` 的参数：`[动作, 合成器名, 节点号(自己编号，别重复), 加在哪, 目标, 参数…]`。
@@ -83,11 +88,14 @@ music synth piece.scd 出.wav --rate 48000
   效果 `FreeVerb` / `DelayN`，都内置。`sc3-plugins` 那类第三方 UGen 不在组件里。
 - ⚠️ **别在脚本里调 scsynth**（`Score.recordNRT` / `String.system`）—— 本机上一个会挂死、
   一个是异步的（脚本一退出就把渲染掐死，还打印"成功"）。渲染交给 `music synth` 就行，它已经拆好两步。
+- ⚠️ **sclang 端有超时**（默认 120 秒，`--timeout N` 可调）：漏写末尾那两行，或者调了会挂住的
+  `String.system`，sclang 会一直不退出（实测：`</dev/null` 也不会让它自己退出），调用方跟着卡死。
+  到点会停下并明确报「sclang 超时」，不要以为它挂了就重跑 —— 先看脚本结尾那两行在不在。
 
 ## 3. 后期（sox）
 
 ```sh
-sox in.wav out.mp3                       # 转格式（mp3 编码器组件里带了）
+sox in.wav out.mp3                       # 转格式（mp3 编码器在工具包里，本机实测过）
 sox in.wav out.wav trim 5 10             # 从第 5 秒截 10 秒
 sox a.wav b.wav out.wav                  # 拼接
 sox in.wav out.wav fade 0.5 0 -0.5       # 头 0.5 秒淡入、尾 0.5 秒淡出
@@ -97,6 +105,10 @@ sox in.wav -n stat                       # 只看统计：峰值、RMS、时长
 ```
 
 `/sdcard` 上的文件可以直接读写；`sox` 的 `-n` 意思是"不写文件"。
+
+**mp3 是真的能编**（本机实测，不是照抄上游文档）：`sox x.wav x.mp3` 出 128 kbps 的 MPEG layer III，
+再解回来时长 10.005 秒、RMS 0.037 —— 编码器是工具包里的 `libmp3lame`（跟着 ffmpeg 那条链），
+不是这个组件带的。`mp3` / `ogg` 都行，`wav` 当然也行。
 
 ## 4. 分析（aubio）—— 让 AI 听自己的成品
 
@@ -127,9 +139,10 @@ pip install mido        # 读写 MIDI：mido.MidiFile / MidiTrack / Message('not
 
 | 现象 | 原因 / 怎么办 |
 |---|---|
-| 渲染出来的 WAV 整段静音 | 音色库不是 GM 音色库（bank 0 / prog 0 没音色）—— 网上很多"免费 GM"其实是别的东西。`music render` 会明确警告；用内置的那本就没事 |
+| 渲染出来的 WAV 整段静音 | 音色库不是 GM 音色库（bank 0 / prog 0 没音色），或者曲子里没有音符 —— 网上很多"免费 GM"其实是别的东西。`music render` 会警告并给**退出码 3**（文件留着）；用内置的那本就没事 |
 | 换的 SoundFont 读不了 | **SF3（vorbis 压缩）fluidsynth 读不了**，要 SF2。MuseScore 系的 `.sf3` 就是这种 |
 | `music synth` 报"脚本没有写出谱面" | 脚本结尾漏了 `score.writeOSCFile("MUSIC_OSC".getenv, 0, nil); 0.exit;` |
+| `music synth` 等了很久，最后报「sclang 超时」 | 同上，也是漏了 `0.exit`（或调了会挂住的 `String.system`）—— 补上那两行；确实要跑更久就 `--timeout 600` |
 | SuperCollider 报找不到类库 | 组件已经把 `-a --include-path` 指好了；**自己直接调 sclang 时**要照抄，另加 `scsynth -U <插件目录>`（`SC_PLUGIN_PATH` 环境变量没用） |
 | 脚本报错但 sclang 退出码 0 | SC 启动时打一堆信息，别只看退出码 —— `music synth` 以"有没有写出谱面/有没有产物"为准 |
 | 临时文件报 `No such file or directory` | 安卓没有可写的根级临时目录。组件已把 `TMPDIR` 指好；自己 fork 的进程要照抄 |
@@ -140,7 +153,7 @@ pip install mido        # 读写 MIDI：mido.MidiFile / MidiTrack / Message('not
 
 | 活 | 耗时 |
 |---|---|
-| `music --selftest`（渲染 + 合成 + 后期 + 分析） | 约 10 秒 |
+| `music --selftest`（渲染 + 合成 + 后期 + 分析 + 超时保护） | 4.4 秒 |
 | 10 秒的 MIDI → WAV（fluidsynth） | 0.3 秒 |
 | 6.3 秒的算法作曲 NRT 渲染（SuperCollider） | 0.07 秒 |
 | 音量对比（同一首《茉莉花》） | GeneralUser GS RMS 2306 / FluidR3_GM 1088 / TimGM6mb 994 |
@@ -150,3 +163,6 @@ pip install mido        # 读写 MIDI：mido.MidiFile / MidiTrack / Message('not
 - 渲染很长的曲子 / 出大文件前，报一下预计体积（10 秒 44.1 kHz 立体声 WAV 约 1.7 MB）。
 - 覆盖或删除 `/sdcard/cccodroid/` 下已有文件之前，先问一句。
 - 装 Python 的 MIDI 库（`pip install`）会联网，先问一句。
+- 用户要把成品**商业发行**（卖钱、放进商业产品）时，提醒他读一下内置音色库的许可原文
+  （路径用 `music banks` 看）：许可是允许商用的，但作者声明部分采样的来源无法 100% 确认，
+  要不要用是他自己的决定 —— 别替他打包票。
