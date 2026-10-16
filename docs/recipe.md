@@ -37,8 +37,8 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 | `exclude` | | 闭包里不要的包（比如 postinst 会失败的可选依赖） |
 | `files` | | 额外放进包里的文件：`{ "usr/bin/xxx": { "src": "xxx", "mode": "755" } }`。目标只能在 `usr/` 下；内容里的 `{{PREFIX}}` 会换成真实前缀 |
 | `fetch` | | 仓库之外的上游构件（官方仓库里没有的东西），见下节 |
-| `needs` | | `{ "shizuku": bool, "display": bool, "gpu": bool \| "adreno" }` —— 用到这些时如实写，App 据此提示。`gpu: "adreno"` = 只能用在高通骁龙（Adreno GPU）上，App 在别家 SoC 上直接不给装（需要新版 App；旧版忽略） |
-| `requires` | | 依赖的其它组件 id，例如 `["gpu-driver-glibc"]`。App 会让用户先装它们；有组件依赖时不让卸载被依赖的那个（需要新版 App；旧版忽略） |
+| `needs` | | `{ "shizuku": bool, "display": bool, "gpu": bool \| "adreno" }` —— 用到这些时如实写，App 据此提示。`gpu: "adreno"` = 只能用在高通骁龙（Adreno GPU）上，App 在别家 SoC 上直接不给装（cccodroid 0.1.11 起；更早的版本忽略） |
+| `requires` | | 依赖的其它组件 id，例如 `["gpu-driver-glibc"]`。App 会让用户先装它们；有组件依赖时不让卸载被依赖的那个（cccodroid 0.1.11 起；更早的版本忽略） |
 | `homepage` | | 上游主页 |
 | `maintainers` | | 维护这个配方的 GitHub 用户名 |
 | `notes` | | 给维护者看的备注 |
