@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "cloudflare",
   "kind": "termux",
-  "revision": 2,
+  "revision": 3,
   "version": "4.151.1",
   "name": { "zh": "Cloudflare（wrangler）", "en": "Cloudflare (wrangler)" },
   "desc": {
@@ -11,7 +11,7 @@
   },
   "roots": ["nodejs"],
   "bin": ["wrangler", "cf", "cf-login", "workerd"],
-  "selftest": "wrangler --version && workerd --version",
+  "selftest": "cf --selftest",
   "needs": { "shizuku": false, "display": false, "gpu": false },
   "category": "net",
   "license": "(MIT OR Apache-2.0) AND Apache-2.0",
@@ -37,6 +37,7 @@
     "usr/bin/cf": { "src": "cf", "mode": "755" },
     "usr/bin/cf-login": { "src": "cf-login", "mode": "755" },
     "usr/lib/cloudflare/cf.mjs": { "src": "cf.mjs" },
+    "usr/lib/cloudflare/selftest.mjs": { "src": "selftest.mjs" },
     "usr/lib/cloudflare/workerd-shim.cjs": { "src": "workerd-shim.cjs" },
     "usr/lib/cloudflare/workerd-entry.cjs": { "src": "workerd-entry.cjs" }
   },

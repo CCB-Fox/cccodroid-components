@@ -192,5 +192,16 @@
         "by": "greyoak111"
       }
     }
+  },
+  "blender": {
+    "4.3.2-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-16",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "installed from signed index; placed 8, shared 0; skill blender installed; selftest exit 0: ===== 总结 ===== 合成=OK 输出=PNG+MP4 帧数=12 版本=4.3.2; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }
