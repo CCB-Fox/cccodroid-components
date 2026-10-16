@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "id": "music",
+  "kind": "termux",
+  "revision": 2,
+  "name": { "zh": "音乐生产工作流（MIDI → 音频 · 合成 · 后期）", "en": "Music production toolchain (MIDI to audio, synthesis, mastering)" },
+  "desc": {
+    "zh": "把「写出来的音乐」变成「能听的音频」，并反过来让 AI 看懂自己的成品。四件事：① fluidsynth 把 MIDI 按内置的 GeneralUser GS 音色库（GM，128 种乐器 + 鼓组）渲染成 WAV；② SuperCollider 从零合成音色、写算法作曲（NRT 离线渲染，不占声卡、不实时）；③ sox 做后期 —— 裁剪、拼接、淡入淡出、归一化、变速、转 mp3/ogg；④ aubio 做分析 —— 基频、节拍、音符起始点，用来核对成品是不是跑调了、节奏对不对。全部无头、命令行驱动，不需要图形界面，也不需要声卡。配合 lilypond 组件就是完整链路：.ly 乐谱 → PDF + MIDI → 音频 → 后期。",
+    "en": "Turns written music into audio you can listen to — and lets the model inspect its own output. Four things: (1) fluidsynth renders MIDI to WAV through the bundled GeneralUser GS bank (GM, 128 instruments plus drum kits); (2) SuperCollider synthesises sounds from scratch and writes algorithmic pieces (NRT offline rendering — no sound card, no realtime); (3) sox does the mastering pass: trim, join, fades, normalise, time-stretch, encode to mp3/ogg; (4) aubio analyses — pitch, beats and onsets, to check the result is in tune and in time. Everything is headless and command-line driven. Together with the lilypond component this is the full chain: .ly score to PDF + MIDI, then to audio, then mastered."
+  },
+  "roots": ["fluidsynth", "supercollider", "sox", "aubio"],
+  "bin": ["music", "fluidsynth", "sclang", "scsynth", "sox", "aubiopitch", "aubioonset", "aubiotrack", "aubionotes"],
+  "selftest": "music --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "media",
+  "license": "LGPL-2.1-or-later AND GPL-3.0-or-later AND GPL-2.0-only AND LicenseRef-GeneralUser-GS-2.0",
+  "homepage": "https://www.fluidsynth.org",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/music": { "src": "bin/music", "mode": "755" }
+  },
+  "fetch": {
+    "usr/share/cccodroid/components/music/GeneralUser-GS.sf2": {
+      "url": "https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/97049183643d5fc5a9322a69c5b09efb667c6c3a/GeneralUser-GS.sf2",
+      "sha256": "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe",
+      "source": "GeneralUser-GS",
+      "version": "2.0.3",
+      "why": "GM 音色库（128 乐器 + 鼓组，SF2）。Termux 官方仓库里只有音源、没有任何音色库 —— fluidsynth 不带音色库就一个字都出不来，而网上流传的「免费 GM」绝大多数（Timbres of Heaven、Arachno、Crisis GM、SGM）都是「仅个人使用、禁止再分发」，只有 GeneralUser GS 明确允许打包进软件产品。URL 钉在 commit 上（raw.githubusercontent.com/.../<sha>/），文件随 tag 改也不影响。许可证：GeneralUser GS License v2.0 —— 允许用于音乐创作（含商用）、允许修改和重新打包，只有一条要求是别直链作者的下载页（我们打的是本地副本）。许可原文随组件一起装（见下一条）。"
+    },
+    "usr/share/cccodroid/components/music/GeneralUser-GS-LICENSE.txt": {
+      "url": "https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/97049183643d5fc5a9322a69c5b09efb667c6c3a/documentation/LICENSE.txt",
+      "sha256": "7b32efefdf95ce38a043799f0659853ddc00fbaa14d8c50f0aca16b9b8b405be",
+      "source": "GeneralUser-GS",
+      "version": "2.0.3",
+      "why": "音色库的许可原文（GeneralUser GS License v2.0），同一个 commit 的 documentation/LICENSE.txt —— 第三方内容要带许可原文，用户手里拿不到就等于没有。原文里有两处用户该知道的：① 作者声明「部分采样取自网络上免费（且合法）的 SoundFont；因为最初只是个人项目，无法 100% 确认全部采样的来源」，并明说这会让要把 GeneralUser GS 用进**商业软件产品**的人顾虑；② 唯一的额外要求是别直链作者的下载页（我们打的是本地副本，正合他意）。"
+    }
+  },
+  "notes": "四个上游：fluidsynth 2.6.1（LGPL-2.1）、SuperCollider 3.14.1（GPL-3）、sox 14.4.2（GPL-2 / LGPL-2.1）、aubio 0.4.9（GPL-3）。roots[0] 是 fluidsynth，所以组件版本号跟着它走。音色库走 fetch 而不是首次运行下载：它只有 31 MB，打进包里就「装完即用」，省掉一次要用户点头的下载（合起来组件约 100 MB 解开）。包装脚本 music 存在的两个理由：一是音色库在组件私有目录里，得有个地方知道它在哪；二是 SuperCollider 的离线渲染要两步、而且有坑（见下），不该让每个调用方自己拼。SuperCollider 的坑：sclang 的类库路径和 scsynth 的插件目录都是编译期写死的绝对路径，得用 `sclang -a --include-path` 和 `scsynth -U` 显式指定（`SC_PLUGIN_PATH` 环境变量不起作用）；Score.recordNRT 是异步的、紧跟 0.exit 会把渲染掐死（表现为「打印了 RENDERED、退出码 0、没有文件」），SC 里的 String.system 在本机还会挂死 —— 所以 music synth 拆成「sclang 只写 .osc 谱面 → scsynth 离线渲染」两步。两步都用 `timeout` 包住（默认 120 秒，`--timeout N` 可调，退出码 1）：脚本漏写 0.exit 或者调了会挂死的 String.system 时，sclang 永远不退，Claude 那条 Bash 命令会跟着卡死 —— iverilog / yosys 栽过同一类坑。许可原文（GeneralUser-GS-LICENSE.txt）随包一起装，`music banks` / `music --where` 会显示它的路径；许可以外的一段话说明部分采样来源无法 100% 确认，skill 里提醒用户：成品要商业发行时先读一下那份许可。"
+}
