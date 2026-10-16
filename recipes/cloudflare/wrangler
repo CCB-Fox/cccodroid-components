@@ -1,0 +1,11 @@
+#!{{PREFIX}}/bin/sh
+# wrangler（Cloudflare 官方 CLI：Workers / Pages / R2 / KV / D1，本地 wrangler dev）。
+# 令牌由 cf-login 存在 ~/.config/cloudflare/（600），这里只在启动 wrangler 时放进它的环境，不常驻。
+D={{PREFIX}}/lib/cloudflare
+C="$HOME/.config/cloudflare"
+[ -z "$CLOUDFLARE_API_TOKEN" ] && [ -f "$C/token" ] && export CLOUDFLARE_API_TOKEN="$(cat "$C/token")"
+[ -z "$CLOUDFLARE_ACCOUNT_ID" ] && [ -f "$C/account" ] && export CLOUDFLARE_ACCOUNT_ID="$(cat "$C/account")"
+export MINIFLARE_WORKERD_PATH={{PREFIX}}/bin/workerd WRANGLER_SEND_METRICS=false
+# require("workerd") 改指本组件的 workerd（官方 npm 包不认安卓平台，见 workerd-shim.cjs）
+export NODE_OPTIONS="--require $D/workerd-shim.cjs${NODE_OPTIONS:+ $NODE_OPTIONS}"
+exec {{PREFIX}}/bin/node "$D/node_modules/wrangler/bin/wrangler.js" "$@"

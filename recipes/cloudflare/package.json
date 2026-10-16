@@ -1,0 +1,8 @@
+{
+  "name": "cccodroid-cloudflare",
+  "private": true,
+  "description": "cccodroid 组件 cloudflare 的 npm 依赖（CI 用 npm ci 按 package-lock.json 装）",
+  "dependencies": {
+    "wrangler": "4.151.1"
+  }
+}
