@@ -4,7 +4,7 @@ import path from "node:path";
 import { recipes } from "./lib.mjs";
 
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
-  "fetch", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
+  "fetch", "npm", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
 // 分类（App 扩展页的分类索引条按它分）：只认这几个，界面上有对应的译名
 const CATEGORIES = new Set(["dev", "office", "media", "science", "eda", "cad", "ai", "gpu", "net", "other"]);
 const KINDS = new Set(["termux", "glibc"]);
@@ -65,6 +65,31 @@ for (const r of recipes()) {
     if (!/^[0-9a-f]{64}$/.test(f.sha256 || "")) err(n, `fetch 的 sha256 要写全（64 位小写十六进制）: ${p}`);
     if (!f.why) err(n, `fetch 要写 why：这是什么、为什么不能走 Termux 官方仓库: ${p}`);
     if (f.mode !== undefined && !/^[0-7]{3,4}$/.test(String(f.mode))) err(n, `fetch 的 mode 是八进制三位/四位: ${p}`);
+  }
+  // npm：Termux 官方仓库没有、只在 npm 上发布的 Node 程序（如 wrangler）。CI 用 npm ci 按配方里提交的
+  // package-lock.json 装 —— 所以锁文件必须在、每个包都来自官方 registry 且带完整性哈希、顶层版本钉死
+  if (r.npm !== undefined) {
+    const m = r.npm;
+    if (!m || typeof m !== "object") err(n, "npm 要写成对象 { dir, why }");
+    else {
+      for (const k of Object.keys(m)) if (!["dir", "why"].includes(k)) err(n, "npm 里不认识的键: " + k);
+      if (!/^usr\/lib\/[a-z0-9][a-z0-9._-]*$/.test(m.dir || "")) err(n, "npm.dir 只能是 usr/lib/<名字>");
+      if (!m.why) err(n, "npm 要写 why：为什么不能走 Termux 官方仓库");
+      const pj = path.join(r.dir, "package.json"), pl = path.join(r.dir, "package-lock.json");
+      if (!fs.existsSync(pj) || !fs.existsSync(pl)) err(n, "npm 型组件要提交 package.json 和 package-lock.json");
+      else {
+        const deps = JSON.parse(fs.readFileSync(pj, "utf8")).dependencies || {};
+        if (!Object.keys(deps).length) err(n, "package.json 的 dependencies 是空的");
+        for (const [d, v] of Object.entries(deps)) if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(v)) err(n, `package.json 里 ${d} 的版本要钉死（写确切版本号，不要 ^ ~ 范围）: ${v}`);
+        const lock = JSON.parse(fs.readFileSync(pl, "utf8"));
+        if (!(lock.lockfileVersion >= 2) || !lock.packages) err(n, "package-lock.json 要 lockfileVersion 2 或 3（npm 7 以上生成）");
+        else for (const [k, p] of Object.entries(lock.packages)) {
+          if (!k || p.link) { if (p.link) err(n, `package-lock.json 里不许有本地链接包: ${k}`); continue; }
+          if (!/^https:\/\/registry\.npmjs\.org\//.test(p.resolved || "")) err(n, `${k} 不是从 registry.npmjs.org 取的: ${p.resolved || "(没有 resolved)"}`);
+          if (!/^sha512-/.test(p.integrity || "")) err(n, `${k} 缺 sha512 完整性哈希`);
+        }
+      }
+    }
   }
   if (r.requires !== undefined) {
     if (!Array.isArray(r.requires) || r.requires.some((d) => typeof d !== "string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d) || d === r.id)) err(n, "requires 是组件 id 的数组（不能写自己）");

@@ -37,6 +37,7 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 | `exclude` | | 闭包里不要的包（比如 postinst 会失败的可选依赖） |
 | `files` | | 额外放进包里的文件：`{ "usr/bin/xxx": { "src": "xxx", "mode": "755" } }`。目标只能在 `usr/` 下；内容里的 `{{PREFIX}}` 会换成真实前缀 |
 | `fetch` | | 仓库之外的上游构件（官方仓库里没有的东西），见下节 |
+| `npm` | | 只在 npm 上发布的 Node 程序，按配方目录里的 `package-lock.json` 装，见「`npm`」一节 |
 | `needs` | | `{ "shizuku": bool, "display": bool, "gpu": bool \| "adreno" }` —— 用到这些时如实写，App 据此提示。`gpu: "adreno"` = 只能用在高通骁龙（Adreno GPU）上，App 在别家 SoC 上直接不给装（cccodroid 0.1.11 起；更早的版本忽略） |
 | `requires` | | 依赖的其它组件 id，例如 `["gpu-driver-glibc"]`。App 会让用户先装它们；有组件依赖时不让卸载被依赖的那个（cccodroid 0.1.11 起；更早的版本忽略） |
 | `homepage` | | 上游主页 |
@@ -72,6 +73,27 @@ SHA256，CI 下载核对后打进包里。规则见下面「`fetch`：仓库外�
 - 不许指向**市场仓库自己**（Release、raw、codeload 都算 —— 那等于自带二进制），也不许 http。
 - 只放**这个组件自己**运行要用的东西，不要顺手捎带别的工具；许可证必须允许再分发。
 - `roots` 照写（决定跟着哪个底座打包、`roots[0]` 也是版本基准之一）；底座里已有的包不会重复打。
+
+## `npm`：只在 npm 上发布的 Node 程序
+
+上游只发 npm 包、Termux 官方仓库里没有时用（例：Cloudflare 的 wrangler）。配方目录里放
+`package.json` 和 `package-lock.json`，recipe.json 写：
+
+```jsonc
+"roots": ["nodejs"],
+"npm": { "dir": "usr/lib/<组件名>", "why": "为什么不走 Termux 官方仓库" }
+```
+
+CI 在 `dir` 下跑 `npm ci --os=android --cpu=arm64 --ignore-scripts --omit=dev`，把 `node_modules` 整个打进包。
+入口自己用 `files` 写包装脚本（`exec {{PREFIX}}/bin/node {{PREFIX}}/lib/<组件名>/node_modules/…`）。
+
+要求（`tools/check-recipes.mjs` 会查）：
+
+- `package.json` 的依赖**写死版本**（不许 `^` `~` `*`、不许 git/本地路径）。
+- `package-lock.json` 的 lockfileVersion ≥ 2；每个包都从 `https://registry.npmjs.org/` 来、带 sha512 integrity。
+- 不跑安装脚本（`--ignore-scripts`）：靠 postinstall 下载二进制的包装不上，二进制改走 `fetch`。
+- 装出来的包声明了 `os` / `cpu` 的，必须包含 android / arm64，否则构建失败。
+- 生成 lock：在任意机器上 `npm install --package-lock-only --os=android --cpu=arm64`，提交前核对 diff。
 
 ## skill/SKILL.md
 

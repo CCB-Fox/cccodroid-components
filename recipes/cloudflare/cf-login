@@ -1,0 +1,24 @@
+#!{{PREFIX}}/bin/sh
+# 登录 Cloudflare：把 API 令牌和账户 ID 存进 ~/.config/cloudflare/（600），再验一下令牌能不能用。
+# 令牌输入时不回显。由用户自己在终端里运行 —— 别让 Claude 代为输入，也别把令牌贴进聊天。
+C="$HOME/.config/cloudflare"
+mkdir -p "$C"; chmod 700 "$C"; umask 077
+if [ "$1" = "--logout" ]; then rm -f "$C/token" "$C/account"; echo "已退出（删掉了保存的令牌）。"; exit 0; fi
+echo "在 Cloudflare 控制台 → 我的个人资料 → API 令牌 里建一个令牌（只给要用的权限），复制下来。"
+printf '粘贴 API 令牌（屏幕上不会显示），然后回车：'
+stty -echo 2>/dev/null; read -r T; stty echo 2>/dev/null; echo
+T=$(printf %s "$T" | tr -d ' \r\n\t')
+[ -z "$T" ] && { echo '没收到令牌，什么都没改。'; exit 1; }
+printf '粘贴账户 ID（控制台首页右侧能看到；账户令牌 cfat_ 开头的必须填，否则可以直接回车）：'
+read -r A; A=$(printf %s "$A" | tr -d ' \r\n\t')
+echo '正在验证令牌……'
+CF_T="$T" CF_A="$A" {{PREFIX}}/bin/node -e '
+const T = process.env.CF_T, A = process.env.CF_A;
+const url = "https://api.cloudflare.com/client/v4/" + (T.startsWith("cfat_") && A ? "accounts/" + A : "user") + "/tokens/verify";
+fetch(url, { headers: { Authorization: "Bearer " + T } }).then((r) => r.json()).then((j) => {
+  if (j.success && j.result && j.result.status === "active") process.exit(0);
+  console.log("❌ 令牌无效：" + JSON.stringify(j.errors || j.result)); process.exit(1);
+}).catch((e) => { console.log("❌ 连不上 Cloudflare：" + e.message); process.exit(1); });' || { echo '没有保存。'; exit 1; }
+printf %s "$T" > "$C/token"
+if [ -n "$A" ]; then printf %s "$A" > "$C/account"; else rm -f "$C/account"; fi
+echo "✅ 已登录并保存。回去告诉 Claude 一声就行。"

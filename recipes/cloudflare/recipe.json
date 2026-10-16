@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "cloudflare",
+  "kind": "termux",
+  "revision": 1,
+  "version": "4.151.1",
+  "name": { "zh": "Cloudflare（wrangler）", "en": "Cloudflare (wrangler)" },
+  "desc": {
+    "zh": "Cloudflare 官方命令行 wrangler：部署 Workers / Pages，管 R2、KV、D1；wrangler dev 在手机上本地跑 Worker。另带 cf（直接调 API 管 DNS、SSL）。用 cf-login 粘贴令牌登录。",
+    "en": "Cloudflare's official wrangler CLI: deploy Workers and Pages, manage R2, KV and D1, and run Workers locally with wrangler dev. Also includes cf for the REST API (DNS, SSL). Sign in by pasting a token into cf-login."
+  },
+  "roots": ["nodejs"],
+  "bin": ["wrangler", "cf", "cf-login", "workerd"],
+  "selftest": "wrangler --version && workerd --version",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "net",
+  "license": "(MIT OR Apache-2.0) AND Apache-2.0",
+  "homepage": "https://developers.cloudflare.com/workers/wrangler/",
+  "maintainers": ["greyoak111"],
+  "npm": {
+    "dir": "usr/lib/cloudflare",
+    "why": "wrangler 只在 npm 上发布，Termux 官方仓库没有；按 package-lock.json 装，只取 android/arm64 的可选依赖"
+  },
+  "fetch": {
+    "usr/lib/cloudflare/bin/workerd": {
+      "url": "https://github.com/greyoak111/workerd-android/releases/download/v1.20261012.1/workerd",
+      "sha256": "6f806f3d6ff1307cf4927ed455f0e93f440cafc15d0d5ed2915dbae02319f083",
+      "mode": "755",
+      "source": "github",
+      "version": "1.20261012.1",
+      "why": "wrangler dev 的本地运行时。官方只有 glibc 版且内置 tcmalloc 假定 48 位地址（安卓 39 位，会随机崩）；这份是官方配置原样编译、只关 tcmalloc 的构建（构建脚本与日志在 greyoak111/workerd-android），版本与 wrangler 4.151.1 依赖的 workerd 一致"
+    }
+  },
+  "files": {
+    "usr/bin/wrangler": { "src": "wrangler", "mode": "755" },
+    "usr/bin/workerd": { "src": "workerd", "mode": "755" },
+    "usr/bin/cf": { "src": "cf", "mode": "755" },
+    "usr/bin/cf-login": { "src": "cf-login", "mode": "755" },
+    "usr/lib/cloudflare/cf.mjs": { "src": "cf.mjs" },
+    "usr/lib/cloudflare/workerd-shim.cjs": { "src": "workerd-shim.cjs" },
+    "usr/lib/cloudflare/workerd-entry.cjs": { "src": "workerd-entry.cjs" }
+  },
+  "notes": "升级 wrangler 时：先让 greyoak111/workerd-android 编出它依赖的那个 workerd 版本，再改 package.json / 重新生成 package-lock.json、改 fetch 的 url/sha256/version、加 revision 或改 version。"
+}

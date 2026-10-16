@@ -1,0 +1,11 @@
+#!{{PREFIX}}/bin/sh
+# workerd（Cloudflare Workers 的本地运行时，wrangler dev 用它）。
+# 官方只出 glibc 版，而且内置的 tcmalloc 假定 48 位地址空间，安卓只有 39 位，跑起来会随机崩；
+# 这份来自 greyoak111/workerd-android：官方配置原样编译，只关掉 tcmalloc。
+# 经底座的 glibc 加载器启动；termux-exec 的预加载是 bionic 库，进不了 glibc 进程，先卸掉。
+# 挂上和 Claude Code 同一个 seccomp 垫片（Android 14 拦 epoll_pwait2，不挂会被 SIGSYS 打死）。
+G={{PREFIX}}/glibc/lib
+PRE=
+[ -n "$CCAPP_CLAUDE_PRELOAD" ] && [ -f "$CCAPP_CLAUDE_PRELOAD" ] && PRE="--preload $CCAPP_CLAUDE_PRELOAD"
+unset LD_PRELOAD LD_LIBRARY_PATH
+exec "$G/ld-linux-aarch64.so.1" --library-path "$G" $PRE {{PREFIX}}/lib/cloudflare/bin/workerd "$@"
