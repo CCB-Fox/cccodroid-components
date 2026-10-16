@@ -170,5 +170,27 @@
         "by": "greyoak111"
       }
     }
+  },
+  "lilypond": {
+    "2.26.0-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-16",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "installed from signed index; placed 363, shared 0; skill lilypond installed; selftest exit 0: ===== 总结 ===== 排版=OK 输出=PDF+MIDI 版本=2.26.0; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "music": {
+    "2.6.1-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-16",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "installed from signed index; placed 2186, shared 0; skill music installed; selftest exit 0: ===== 总结 ===== 渲染=OK 合成=OK 后期=OK 分析=OK 超时=OK fluidsynth=2.6.1 scsynth=3.14.1; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }

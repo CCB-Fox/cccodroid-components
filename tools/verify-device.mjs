@@ -1,7 +1,7 @@
 // 真机验证一个组件，打印一条可以直接提 PR 进 verified.json 的记录。
 //
 // 在装了 cccodroid 的设备上、cccodroid 的终端里跑（走 App 自己的网关装卸，和用户点按钮是同一条路）：
-//   node verify-device.mjs <组件 id> --app "cccodroid 0.1.11" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]
+//   node verify-device.mjs <组件 id> --app "cccodroid 0.1.11" [--by <GitHub 用户名>] [--keep] [--selftest-timeout 分钟] [--out 结果.txt]
 //   node verify-device.mjs --pending --app … --by … [--out 结果.txt] [--pr]
 //     --pr：跑完直接把通过的记录并进 verified.json、开 PR（用 gh，要已登录且对市场仓库有写权限；
 //     没权限就照旧打印，手动提）。不用 clone 仓库，走 GitHub API。
@@ -25,9 +25,11 @@ const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
 const flag = (k) => { const i = argv.indexOf(k); return i >= 0 ? (argv.splice(i, 1), true) : false; };
 const APP = opt("--app"), BY = opt("--by") || "", OUT = opt("--out"), KEEP = flag("--keep"), PENDING = flag("--pending"), PR = flag("--pr");
+// selftest 的时限（分钟）。blender 这类第一次运行要先下载、解包运行环境（几百 MB），5 分钟不够
+const SELFTEST_MIN = Number(opt("--selftest-timeout") || 5);
 const ID0 = argv[0];
 if (PENDING ? ID0 : !ID0 || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(ID0)) {
-  console.log("用法：node verify-device.mjs <组件 id> --app \"cccodroid <版本>\" [--by <GitHub 用户名>] [--keep] [--out 结果.txt]");
+  console.log("用法：node verify-device.mjs <组件 id> --app \"cccodroid <版本>\" [--by <GitHub 用户名>] [--keep] [--selftest-timeout 分钟] [--out 结果.txt]");
   console.log("　　　node verify-device.mjs --pending --app \"cccodroid <版本>\" --by <GitHub 用户名> [--out 结果.txt]");
   process.exit(2);
 }
@@ -86,7 +88,7 @@ function baseCheck() {
 const sh = (cmd, timeout = 300000) => {
   const r = spawnSync(path.join(PREFIX, "bin", "bash"), ["-c", cmd], { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PATH: path.join(PREFIX, "bin") + ":" + (process.env.PATH || "/system/bin") } });
-  return { code: r.status ?? (r.error ? -1 : -2), out: ((r.stdout || "") + (r.stderr || "")).trim(), stdout: (r.stdout || "").trim() };
+  return { code: r.status ?? (r.error ? -1 : -2), timedOut: r.error?.code === "ETIMEDOUT", out: ((r.stdout || "") + (r.stderr || "")).trim(), stdout: (r.stdout || "").trim() };
 };
 const prop = (k) => { try { return execFileSync("/system/bin/getprop", [k], { encoding: "utf8" }).trim(); } catch { return ""; } };
 
@@ -139,11 +141,11 @@ if (ir.ok) {
   const self = (await item(ID)).selftest || await selftestFromIndex(ID, base12);
   log(`\n② selftest：${self || "（索引里没有）"}`);
   if (self) {
-    st = sh(self);
+    st = sh(self, SELFTEST_MIN * 60000);
     // 总结取标准输出的最后一行：stderr 上常有库的告警（GLib、LD_PRELOAD 提示），排在后面会把结果挤掉
     const last = (st.stdout || st.out).split("\n").filter(Boolean).pop() || "";
     for (const l of st.out.split("\n").slice(-6)) log("   | " + l);
-    ok(st.code === 0, `selftest 退出码 ${st.code}${last ? "；最后一行：" + last : ""}`);
+    ok(st.code === 0, st.timedOut ? `selftest 超过 ${SELFTEST_MIN} 分钟被停掉（第一次运行要下载的组件用 --selftest-timeout 放宽）` : `selftest 退出码 ${st.code}${last ? "；最后一行：" + last : ""}`);
     st.last = last;
   } else ok(false, "没有 selftest 可跑");
 }
