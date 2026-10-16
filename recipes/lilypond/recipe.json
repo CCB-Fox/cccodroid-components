@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "lilypond",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "LilyPond（制谱/作曲）", "en": "LilyPond (music engraving)" },
+  "desc": {
+    "zh": "用文本写乐谱：一段 .ly 代码排版成出版级的 PDF 乐谱，也能出 PNG / SVG / MIDI。多声部、歌词、和弦指法图、鼓谱、早期音乐记谱都支持。没有图形界面，也不需要 —— 乐谱就是纯文本，改一个音符重排一次；成品 PDF 在应用内查看器里就能看。带 lilypond-book（嵌进 LaTeX/HTML 文档）、musicxml2ly / midi2ly / abc2ly（把别的格式转成 .ly）、convert-ly（旧版本语法升级）。",
+    "en": "Music notation from plain text: a .ly file is engraved into a publication-grade PDF, or PNG / SVG / MIDI. Multiple voices, lyrics, chord diagrams, drum notation and early music are supported. No GUI, and none is needed — the score is plain text, so you edit a note and re-engrave; the PDF opens in the app's viewer. Includes lilypond-book (embed scores in LaTeX/HTML), musicxml2ly / midi2ly / abc2ly (import other formats into .ly) and convert-ly (upgrade older syntax)."
+  },
+  "roots": ["lilypond"],
+  "bin": ["lilypond", "lilypond-run", "lilypond-book", "musicxml2ly", "midi2ly", "abc2ly", "convert-ly"],
+  "selftest": "lilypond-run --selftest",
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "media",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://lilypond.org",
+  "maintainers": ["greyoak111"],
+  "files": {
+    "usr/bin/lilypond-run": { "src": "bin/lilypond-run", "mode": "755" }
+  },
+  "notes": "上游 2.26.0（Termux 包 2.26.0）。净增只有 2 个包（lilypond + tex-gyre），解开 17 MB —— Guile / ghostscript / glib / pango / harfbuzz 那一整条链底座已经带了。包装脚本 lilypond-run 存在的理由：一是自检得真排一页谱（--version 说明不了字体装好没有），二是 lilypond 的 -o 收的是基名不是文件名、格式靠开关不看扩展名（给它 out.pdf 会得到 out.pdf.pdf，给 out.png 仍然出 PDF），三是默认加 -dno-point-and-click，四是 TMPDIR 兜底 —— 安卓没有根目录级临时目录，LilyPond 找不到可写临时目录时排版阶段会失败（open-fdes ENOENT），而同一次运行的 MIDI 却正常出来，看着像「PDF 坏了」。"
+}
