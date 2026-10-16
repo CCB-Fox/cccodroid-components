@@ -203,5 +203,16 @@
         "by": "greyoak111"
       }
     }
+  },
+  "cloudflare": {
+    "4.151.1-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-16",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "installed from signed index; placed 1649, shared 0; skill cloudflare installed; selftest exit 0: ===== 总结 ===== wrangler=4.151.1 workerd=2026-10-12 dev=OK 请求=40/40; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }
