@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gpu-bench",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": {
     "zh": "GPU 信息与跑分（clinfo / vkmark / clpeak）",
     "en": "GPU info & benchmarks (clinfo / vkmark / clpeak)"

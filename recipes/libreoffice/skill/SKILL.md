@@ -15,6 +15,27 @@ office-convert --selftest
 
 最后一行是 `===== 总结 ===== 转换=OK 输出=PDF 中文=OK` 就是好的。约 1 秒。
 
+## 运行链路
+
+```
+office-convert（bash 包装，$PREFIX/bin/office-convert）
+  ├─ 在 $TMPDIR 下建一个临时用户配置目录（每次调用一个，用完删）
+  └─ $PREFIX/lib/libreoffice/program/soffice --headless --convert-to <格式> --outdir <目录> <文件>
+       ├─ 读写文档、选导出过滤器 → LibreOffice 本体（bionic 原生，Termux 官方包）
+       └─ 中文字体 → fontconfig → 系统的 /system/fonts（NotoSansCJK）
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `office-convert` | 本组件 | `$PREFIX/bin/office-convert` |
+| LibreOffice 本体 | 本组件：Termux 官方包 `libreoffice`（裁掉 16 个无头用不到的包） | `$PREFIX/lib/libreoffice/` |
+| `pdftotext` / `pdffonts` / `pdfinfo` / `pdftoppm` | 本组件：随 LibreOffice 依赖装进来的 poppler | `$PREFIX/bin/` |
+| 字体 | **系统**（组件不带字体包） | `/system/fonts/` |
+
+- 不用 GPU、不联网、没有窗口。转换失败就是文档或格式的问题，看 stderr。
+- **会悄悄出错的地方**：系统里缺 CJK 字体时，转换照样成功，但中文是方块。`office-convert --selftest` 最后一行的「中文=」会说清楚。
+- 自己直接调 `soffice` 时，必须带 `-env:UserInstallation=file://<可写目录>`，否则它去写默认配置目录，并发调用会互相锁住。
+
 ## 基本用法
 
 ```sh

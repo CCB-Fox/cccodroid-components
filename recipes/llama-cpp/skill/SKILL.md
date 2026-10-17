@@ -22,6 +22,31 @@ description: 在本机跑大语言模型（llama.cpp）：命令行推理、量 
 下好放到 `/sdcard/cccodroid/models/`（`llama-run` 会自动去那里找；也能用
 `--models` 列出来）。放这个目录的好处是用户自己在文件管理器里也看得到、能删。
 
+## 运行链路
+
+```
+llama-run [--backend cpu|vulkan] -m <模型> …（bash 包装，$PREFIX/bin/llama-run）
+  ├─ 没写 -t：只用中核和大核的线程数（小核会拖慢一半），stderr 说一句
+  ├─ -m 给短名字 → 到模型目录找 .gguf
+  ├─ --backend cpu → 加 -dev none；vulkan → 加 -dev Vulkan0；不写 → llama.cpp 自己挑
+  └─ $PREFIX/bin/llama-cli …   ← Termux 官方包，bionic 原生
+       ├─ CPU 后端：本体自带
+       └─ Vulkan 后端（llama-cpp-backend-vulkan）→ $PREFIX/lib 里的 Vulkan 加载器
+            → 到 $PREFIX/share/vulkan/icd.d/ 找驱动 → Turnip（gpu-driver 组件）
+            → /dev/kgsl-3d0 → Adreno
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `llama-cli` / `llama-server` / `llama-bench` | 本组件：Termux 官方包 `llama-cpp` | `$PREFIX/bin/` |
+| Vulkan 后端 | 本组件：`llama-cpp-backend-vulkan` | `$PREFIX/lib/` |
+| Vulkan 加载器 | 底座 | `$PREFIX/lib/` |
+| Turnip（GPU 驱动） | **gpu-driver 组件**（不是本组件的依赖，要另装） | `$PREFIX/share/vulkan/icd.d/` |
+| 模型 | **不随组件发**，用户同意后下载 | 模型目录（见上） |
+
+- **会悄悄降级的地方**：没装 gpu-driver 时列不出 `Vulkan0`，不指定后端就直接走 CPU，不报错，只是慢。先跑 `llama-run --devices`：有 `Vulkan0: Turnip Adreno …` 才是 GPU 可用。
+- 这里没有 OpenCL 后端（原因见下文「为什么没有 OpenCL 后端」），也别去接厂商 OpenCL。
+
 ## 先自检（不需要模型）
 
 ```sh

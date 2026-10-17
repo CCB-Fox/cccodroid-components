@@ -17,6 +17,26 @@ scad-export --selftest
 
 最后一行 `===== 总结 ===== 导出=OK MCAD=OK 版本=…` 就是好的。约 0.5 秒。
 
+## 运行链路
+
+```
+scad-export 模型.scad [输出]（bash 包装，$PREFIX/bin/scad-export）
+  ├─ 输出是 .png → 当场拦下（这版是无头构建，导 PNG 会段错误）
+  ├─ OPENSCADPATH=$PREFIX/share/openscad/libraries   ← 让 use <MCAD/…> 找得到
+  └─ $PREFIX/bin/openscad -o <输出> 模型.scad   ← Termux 官方包，bionic 原生，NULLGL 无头构建
+       → 按扩展名导出 STL / OFF / AMF / CSG / DXF / SVG
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `openscad` 本体 | 本组件：Termux 官方包 `openscad`（上游 2021.01） | `$PREFIX/bin/openscad` |
+| MCAD 库 | 本组件（随包） | `$PREFIX/share/openscad/libraries/MCAD/` |
+| `scad-export` | 本组件 | `$PREFIX/bin/scad-export` |
+
+- 纯 CPU、不用 GPU、没有预览窗口，也出不了渲染图（PNG）。要给用户看形状，导 STL 用应用内查看器，或导 2D 的 SVG。
+- 直接调 `openscad` 时，`use <MCAD/…>` 一律找不到（它不去那个目录找），这不是 MCAD 没装。用 `scad-export`，或自己设 `OPENSCADPATH`。
+- `openscad --version` 打出来的是构建日期（2026.07.19），不是另一个版本。
+
 ## 基本用法
 
 ```sh

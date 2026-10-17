@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "ngspice",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "ngspice（电路仿真）", "en": "ngspice (circuit simulation)" },
   "desc": {
     "zh": "SPICE 电路仿真：写网表，跑直流 / 瞬态 / 交流 / 噪声 / 工作点分析，读数值结果。命令行批处理，没有图形界面（要画波形就让 Claude 生成 SVG）。",

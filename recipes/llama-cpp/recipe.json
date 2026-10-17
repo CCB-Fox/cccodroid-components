@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "llama-cpp",
   "kind": "termux",
-  "revision": 2,
+  "revision": 3,
   "name": { "zh": "llama.cpp（本地大模型推理）", "en": "llama.cpp (local LLM inference)" },
   "desc": {
     "zh": "本地跑大语言模型：命令行推理、量 tokens/s、起 OpenAI 兼容的本地 API 服务。CPU 和 Vulkan 两个后端。模型不随组件走，要自己下。",

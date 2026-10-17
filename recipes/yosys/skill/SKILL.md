@@ -28,6 +28,27 @@ yosys-run -s flow.ys                                              # ✓ .ys 里�
 只有一条要记住：**别绕过 `yosys-run` 去调 `$PREFIX/bin/yosys`** —— 那样没有注入，还是会卡死
 （`yosys-run --selftest` 里有一条对照专门验证这件事）。
 
+## 运行链路
+
+```
+yosys-run <yosys 的参数>（bash 包装，$PREFIX/bin/yosys-run）
+  ├─ 在你的命令流最前面插一句：scratchpad -set abc.exe <组件目录>/abc-exe
+  │    （-p / .ys 插在开头；-s/-c 脚本写进第一行；-S 换成等价的 -p "…; synth"）
+  └─ $PREFIX/bin/yosys …   ← Termux 官方包，bionic 原生
+       ├─ 综合、优化、等价检查、SAT → yosys 本体
+       ├─ 走到 abc 时 → abc-exe（本组件的小包装）→ $PREFIX/bin/yosys-abc -s -f <临时脚本>
+       └─ show -format svg → graphviz 的 dot（底座）
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `yosys` / `yosys-abc` | 本组件：Termux 官方包 `yosys` | `$PREFIX/bin/` |
+| `yosys-run`、`abc-exe` | 本组件 | `$PREFIX/bin/yosys-run`、`$PREFIX/share/cccodroid/components/yosys/abc-exe` |
+| graphviz（出图） | 底座 | `$PREFIX/bin/dot` |
+
+- **为什么非走 `yosys-run` 不可**：yosys 默认用「常驻 ABC 协进程」那条路调 abc，本机上这条路两边互等，**永远卡住、不报错、不超时**；`synth` 默认就会走到 abc。`abc.exe` 指向一个不同的路径时，yosys 改成每次单独跑一遍 abc，就正常了。直接调 `yosys` 卡住时别等，也别以为是设计太大。
+- 纯 CPU、不联网。`show` 一定要带 `-viewer none -prefix <名字>`：本机没有 xdot。
+
 ## 先自检
 
 ```sh

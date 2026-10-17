@@ -16,6 +16,32 @@ godot-run --selftest          # 约 20～40 秒（装了导出模板时）：版
 godot-templates --selftest    # 1 秒：用本地假 release 把「下载 → sha512 核对 → 安装 → 版本不符」走一遍
 ```
 
+## 运行链路
+
+```
+godot-run <参数>（python3 包装，$PREFIX/bin/godot-run）
+  ├─ 参数里有 --export… 时先准备导出环境：
+  │    SDK 垫片（假 adb + 包着 $PREFIX/bin/apksigner 的垫片 + 0 字节 android.jar）
+  │    → 编辑器设置补三个键（只补缺的）→ keytool 生成 debug keystore（没有才生成）
+  │    → 检查导出模板在不在，不在就拦下
+  └─ $PREFIX/bin/godot <参数>   ← Termux 的 bionic 原生 Godot，直接运行（不经 glibc）
+       └─ 导出 APK：读导出模板 → 打包工程 → 经垫片调 apksigner（java）签名
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `godot-run` / `godot-templates` | 本组件 | `$PREFIX/bin/` |
+| `godot` 本体 | 本组件：Termux x11 仓库的 `godot`（bionic 原生，`4.7.2.stable.termux`） | `$PREFIX/bin/godot` |
+| `java` / `keytool` / `apksigner` | **底座**（cccodroid 工具包），不在本组件里 | `$PREFIX/bin/` |
+| SDK 垫片 | `godot-run` 导出前现建 | `$PREFIX/share/cccodroid/components/godot/android-sdk/` |
+| 导出模板（`android_debug.apk` / `android_release.apk`） | `godot-templates download`（官方 tpz，1.28 GB，**先问用户**） | `~/.local/share/godot/export_templates/4.7.2.stable/` |
+| debug keystore | `godot-run` 现场生成 | `~/.local/share/godot/keystores/debug.keystore` |
+
+- 这是 **bionic 原生**构建，不经过 glibc，也不需要 Shizuku 提权。
+- **不走 gradle 导出**：垫片只够非 gradle 导出用，工程里开了 `gradle_build/use_gradle_build` 会失败。
+- 缺 `java` / `keytool` / `apksigner`：`godot-run` 会明说是底座缺东西；缺模板：明确拦下并提示 `godot-templates`。不会悄悄降级。
+- 渲染：无头模式不画图。编辑器（`--editor`）要显示服务器，本机没有。
+
 ## 基本用法
 
 ```sh

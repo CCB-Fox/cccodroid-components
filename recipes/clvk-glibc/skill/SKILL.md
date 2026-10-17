@@ -14,6 +14,29 @@ clvk-info            # 自检：平台/设备 + 编译并跑一个向量加 kern
 clvk-info --env      # 只打印环境变量
 ```
 
+## 运行链路
+
+```
+你的 OpenCL 程序（glibc）
+  └─ lgpu-run（gpu-driver-glibc 组件）  摘掉 bionic LD_PRELOAD，注入 Turnip ICD，经 glibc ld-linux 启动
+       └─ libOpenCL.so = clvk（本组件）
+            ├─ clCreateProgramWithSource → 内嵌 clspv 把 OpenCL C 编成 SPIR-V
+            └─ 执行 → libvulkan.so.1（Vulkan 加载器，gpu-driver-glibc）
+                      → Turnip（gpu-driver-glibc）→ /dev/kgsl-3d0 → Adreno
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `libOpenCL.so`（clvk，内嵌 clspv + libclc） | 本组件 fetch（cccodroid-gpu-driver-snapdragon 的 CI 构建） | `$PREFIX/glibc/lib/libOpenCL.so` |
+| OpenCL 头文件 | 本组件 fetch（Khronos 官方） | `$PREFIX/glibc/include/CL/` |
+| 自测程序 `clprobe` | 本组件 fetch | `$PREFIX/libexec/devkit/components/clvk-glibc/clprobe` |
+| `lgpu-run` / `lgpu-cc`、Vulkan 加载器、Turnip | **gpu-driver-glibc 组件**（本组件的依赖） | `$PREFIX/bin/`、`$PREFIX/glibc/lib/`、`$PREFIX/glibc/share/vulkan/icd.d/` |
+| glibc 运行时 | 底座 | `$PREFIX/glibc/lib/` |
+
+- 缺 gpu-driver-glibc：`clvk-info` 明确报「没有 lgpu-run」（退出码 3），不会悄悄退回 CPU —— clvk 没有 CPU 后端。
+- 平台名是 `clvk`、设备名是 `Turnip Adreno …` 才说明走的是这条链；看到别的平台说明加载到了别的 `libOpenCL.so`。
+- **厂商的 `/vendor/lib64/libOpenCL.so` 不在这条链上**，也接不进来（bionic 库，glibc 进程加载不了）。
+
 ## 跑自己的程序
 
 ```sh
