@@ -16,6 +16,24 @@
         "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 239, shared 0; skill github-cli installed; selftest gh --version exit 0 (2.102.0); removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "2.102.0-r2": {
+      "13ba8abc3e53": {
+        "date": "2026-10-18",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.9 + v0.2.0 gateway (1b26c6a)",
+        "checks": "相对 2.102.0-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed community index; gh --version OK; skill github-cli installed",
+        "by": "greyoak111",
+        "carriedFrom": "2.102.0-r1"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "相对 2.102.0-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 239, shared 0; skill github-cli installed; selftest gh --version exit 0 (2.102.0); removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "2.102.0-r1"
+      }
     }
   },
   "gpu-driver-glibc": {
@@ -33,6 +51,24 @@
         "app": "cccodroid 0.1.12",
         "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 8680, shared 3; skill gpu-driver-glibc installed; selftest lgpu-info exit 0: Turnip=OK; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "24.2.6-r2": {
+      "13ba8abc3e53": {
+        "date": "2026-10-18",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.11 (gateway d969186)",
+        "by": "greyoak111",
+        "checks": "相对 24.2.6-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed community index; same-origin files already on device (placed 0, shared 8683); lgpu-info Turnip=OK; removal refused while clvk-glibc depends on it; removed cleanly afterwards, devkit base unchanged",
+        "carriedFrom": "24.2.6-r1"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "相对 24.2.6-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 8680, shared 3; skill gpu-driver-glibc installed; selftest lgpu-info exit 0: Turnip=OK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "24.2.6-r1"
       }
     }
   },
@@ -52,6 +88,24 @@
         "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; dependency gpu-driver-glibc installed by the script first; placed 9, shared 1; skill clvk-glibc installed; selftest clvk-info exit 0: OpenCL 3.0 CLVK on Turnip Adreno, kernel compile OK, vector add PASS (0/4096 wrong); removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "2026.10.15-r2": {
+      "13ba8abc3e53": {
+        "date": "2026-10-18",
+        "device": "Lenovo TB320FC / Android 15",
+        "app": "cccodroid 0.1.11 (gateway d969186)",
+        "by": "greyoak111",
+        "checks": "相对 2026.10.15-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed community index; refused before gpu-driver-glibc was installed; same-origin files already on device (placed 0, shared 10); clvk-info: OpenCL 3.0 CLVK on Turnip Adreno, vector add PASS (0/4096 wrong); removed cleanly, devkit base unchanged",
+        "carriedFrom": "2026.10.15-r1"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "相对 2026.10.15-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; dependency gpu-driver-glibc installed by the script first; placed 9, shared 1; skill clvk-glibc installed; selftest clvk-info exit 0: OpenCL 3.0 CLVK on Turnip Adreno, kernel compile OK, vector add PASS (0/4096 wrong); removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "2026.10.15-r1"
+      }
     }
   },
   "gpu-driver": {
@@ -70,6 +124,24 @@
         "checks": "tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 14, shared 0 (Mesa etc. now come from the devkit base); skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "26.2.5-r2": {
+      "13ba8abc3e53": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.11",
+        "checks": "相对 26.2.5-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：tools/verify-device.mjs, installed alone (browser removed first): installed from signed index; placed 219, shared 2; skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS opencl=-; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "26.2.5-r1"
+      },
+      "7b8bf36750c8": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.12",
+        "checks": "相对 26.2.5-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：tools/verify-device.mjs on devkit-2026.10.15: installed from signed index; placed 14, shared 0 (Mesa etc. now come from the devkit base); skill gpu-driver installed; selftest gpu-info exit 0: Turnip=OK zink=OK render=PASS; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "26.2.5-r1"
+      }
     }
   },
   "gnucap": {
@@ -80,6 +152,16 @@
         "app": "cccodroid 0.1.17",
         "checks": "installed from signed index; placed 73, shared 0; skill gnucap installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.9663V; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "20210107-4-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 20210107-4-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 73, shared 0; skill gnucap installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.9663V; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "20210107-4-r1"
       }
     }
   },
@@ -92,6 +174,16 @@
         "checks": "installed from signed index; placed 4289, shared 0; skill godot installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "4.7.2-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 4.7.2-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 4289, shared 0; skill godot installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "4.7.2-r1"
+      }
     }
   },
   "gpu-bench": {
@@ -102,6 +194,16 @@
         "app": "cccodroid 0.1.17",
         "checks": "installed from signed index; placed 166, shared 0; skill gpu-bench installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged; deps installed for the test: gpu-driver",
         "by": "greyoak111"
+      }
+    },
+    "3.1.26.09.26-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 3.1.26.09.26-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 166, shared 0; skill gpu-bench installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged; deps installed for the test: gpu-driver",
+        "by": "greyoak111",
+        "carriedFrom": "3.1.26.09.26-r1"
       }
     }
   },
@@ -114,6 +216,16 @@
         "checks": "installed from signed index; placed 55, shared 0; skill iverilog installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "13.0-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 13.0-r2 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 55, shared 0; skill iverilog installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "13.0-r2"
+      }
     }
   },
   "libreoffice": {
@@ -124,6 +236,16 @@
         "app": "cccodroid 0.1.17",
         "checks": "installed from signed index; placed 7850, shared 0; skill office-convert installed; selftest exit 0: ===== 总结 ===== 转换=OK 输出=PDF 中文=OK; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "26.8.1.1-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 26.8.1.1-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 7850, shared 0; skill office-convert installed; selftest exit 0: ===== 总结 ===== 转换=OK 输出=PDF 中文=OK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "26.8.1.1-r1"
       }
     }
   },
@@ -136,6 +258,16 @@
         "checks": "installed from signed index; placed 87, shared 0; skill llama-cpp installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "0.6.0-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 0.6.0-r2 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 87, shared 0; skill llama-cpp installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "0.6.0-r2"
+      }
     }
   },
   "ngspice": {
@@ -146,6 +278,16 @@
         "app": "cccodroid 0.1.17",
         "checks": "installed from signed index; placed 36, shared 0; skill ngspice installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.96644607e+00 数据点=80; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "47-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 47-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 36, shared 0; skill ngspice installed; selftest exit 0: ===== 总结 ===== 瞬态=OK 末值=4.96644607e+00 数据点=80; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "47-r1"
       }
     }
   },
@@ -158,6 +300,16 @@
         "checks": "installed from signed index; placed 349, shared 0; skill openscad installed; selftest exit 0: ===== 总结 ===== 导出=OK MCAD=OK 版本=2026.07.19; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "2021.01-r2": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 2021.01-r1 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 349, shared 0; skill openscad installed; selftest exit 0: ===== 总结 ===== 导出=OK MCAD=OK 版本=2026.07.19; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "2021.01-r1"
+      }
     }
   },
   "yosys": {
@@ -168,6 +320,16 @@
         "app": "cccodroid 0.1.17",
         "checks": "installed from signed index; placed 1482, shared 0; skill yosys installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "0.70-r4": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.1.17",
+        "checks": "相对 0.70-r3 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 1482, shared 0; skill yosys installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "0.70-r3"
       }
     }
   },
@@ -180,6 +342,16 @@
         "checks": "installed from signed index; placed 363, shared 0; skill lilypond installed; selftest exit 0: ===== 总结 ===== 排版=OK 输出=PDF+MIDI 版本=2.26.0; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "2.26.0-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "相对 2.26.0-r2 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 363, shared 0; skill lilypond installed; selftest exit 0: ===== 总结 ===== 排版=OK 输出=PDF+MIDI 版本=2.26.0; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "2.26.0-r2"
+      }
     }
   },
   "music": {
@@ -190,6 +362,16 @@
         "app": "cccodroid 0.2.1",
         "checks": "installed from signed index; placed 2186, shared 0; skill music installed; selftest exit 0: ===== 总结 ===== 渲染=OK 合成=OK 后期=OK 分析=OK 超时=OK fluidsynth=2.6.1 scsynth=3.14.1; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "2.6.1-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "相对 2.6.1-r2 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 2186, shared 0; skill music installed; selftest exit 0: ===== 总结 ===== 渲染=OK 合成=OK 后期=OK 分析=OK 超时=OK fluidsynth=2.6.1 scsynth=3.14.1; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "2.6.1-r2"
       }
     }
   },
@@ -202,6 +384,16 @@
         "checks": "installed from signed index; placed 8, shared 0; skill blender installed; selftest exit 0: ===== 总结 ===== 合成=OK 输出=PNG+MP4 帧数=12 版本=4.3.2; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
       }
+    },
+    "4.3.2-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "r3 只改了 SKILL.md 和 env.sh 选 Vulkan ICD 的顺序（优先 gpu-driver-glibc 的 Turnip，没有就明确走 llvmpipe）；ICD 这条同机已由 DeepSeek 实测出图（EEVEE 小图 7.8 s），未单独重跑 verify-device。 原记录：installed from signed index; placed 8, shared 0; skill blender installed; selftest exit 0: ===== 总结 ===== 合成=OK 输出=PNG+MP4 帧数=12 版本=4.3.2; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "4.3.2-r2"
+      }
     }
   },
   "cloudflare": {
@@ -212,6 +404,16 @@
         "app": "cccodroid 0.2.1",
         "checks": "installed from signed index; placed 1649, shared 0; skill cloudflare installed; selftest exit 0: ===== 总结 ===== wrangler=4.151.1 workerd=2026-10-12 dev=OK 请求=40/40; removed cleanly; devkit base unchanged",
         "by": "greyoak111"
+      }
+    },
+    "4.151.1-r4": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.1",
+        "checks": "相对 4.151.1-r3 只改了 SKILL.md（加「运行链路」）与 revision，包内程序与脚本未变，沿用其真机验证。 原记录：installed from signed index; placed 1649, shared 0; skill cloudflare installed; selftest exit 0: ===== 总结 ===== wrangler=4.151.1 workerd=2026-10-12 dev=OK 请求=40/40; removed cleanly; devkit base unchanged",
+        "by": "greyoak111",
+        "carriedFrom": "4.151.1-r3"
       }
     }
   }
