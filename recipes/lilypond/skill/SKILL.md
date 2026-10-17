@@ -16,6 +16,31 @@ lilypond-run --selftest
 
 最后一行是 `===== 总结 ===== 排版=OK 输出=PDF+MIDI 版本=2.26.0` 就正常，约 2 秒。
 
+## 运行链路
+
+```
+lilypond-run 曲子.ly（bash 包装，$PREFIX/bin/lilypond-run）
+  ├─ 补一个可写的 TMPDIR（没有就用 $PREFIX/tmp）
+  ├─ 输出名改成基名（lilypond 的 -o 不要扩展名，格式看开关）
+  └─ $PREFIX/bin/lilypond -dno-point-and-click -o <基名> 曲子.ly
+       ├─ 解析与排版 → Guile（底座）
+       ├─ 字体 → 乐谱字体与 TeX Gyre（本组件）；中文 → fontconfig → /system/fonts
+       ├─ PDF → ghostscript（底座）
+       └─ MIDI → 直接写出
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `lilypond` 本体及 `musicxml2ly` 等转换脚本 | 本组件：Termux 官方包 `lilypond` | `$PREFIX/bin/` |
+| TeX Gyre 字体 | 本组件：`tex-gyre` | `$PREFIX/share/` |
+| Guile、ghostscript、pango/harfbuzz | **底座** | `$PREFIX/` |
+| 中文字体 | **系统** | `/system/fonts/` |
+| `lilypond-run` | 本组件 | `$PREFIX/bin/lilypond-run` |
+
+- 纯 CPU、不联网。
+- **会悄悄出错的地方**：没有可写临时目录时，PDF 排版阶段失败，但同一次运行的 MIDI 照样生成，看着像「PDF 坏了」。`lilypond-run` 已经补了 TMPDIR；直接调 `lilypond` 时要自己保证 `$TMPDIR` 可写。
+- 直接调 `lilypond -o out.pdf` 会得到 `out.pdf.pdf`；`-o out.png` 照样出 PDF。用 `lilypond-run` 就不用管这些。
+
 ## 基本用法
 
 ```sh

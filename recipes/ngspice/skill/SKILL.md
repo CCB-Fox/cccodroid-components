@@ -47,6 +47,26 @@ print v(out)
 
 `spice-run` 在首行长得像元件名（`V1 …` 这种字母+数字开头）时会打一句提示，别的不管。
 
+## 运行链路
+
+```
+spice-run 网表.cir（bash 包装，$PREFIX/bin/spice-run）
+  ├─ 检查第一行：长得像元件就提醒（SPICE 把第一行当标题）
+  └─ $PREFIX/bin/ngspice -b 网表.cir   ← Termux 官方包，bionic 原生，批处理模式
+       输出先落到 $TMPDIR 的临时日志
+  → 包装扫 Error: / no simulations run 等 → 有就退出码 1 并给提示
+  → 没错就把结果打到 stdout；wrdata 写的数据文件由网表自己决定位置
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `ngspice` 本体 | 本组件：Termux 官方包 `ngspice` | `$PREFIX/bin/ngspice` |
+| `spice-run` | 本组件 | `$PREFIX/bin/spice-run` |
+| 画图（可选） | 手写 SVG（标准库 Python）；转 PNG 用底座的 `magick`；matplotlib **没装** | — |
+
+- 纯 CPU、不联网。本机没有显示服务器，ngspice 的绘图窗口用不了，要图就走 SVG。
+- **ngspice 有一类错误退出码是 0**（`print i(R1)` 只打一句 Error 就 rc=0），所以**一律用 `spice-run`**。
+
 ## 跑一个网表
 
 ```sh

@@ -26,6 +26,7 @@ const DOWNLOAD = /\b(?:curl|wget|urlopen|urlretrieve|requests\.get)\b|\bfetch\(\
 const HASHED = /sha256|hashlib|sha256sum|createHash/i;
 // 走 Turnip / 厂商 OpenCL 的包只对骁龙有意义：带了就必须写 needs.gpu: "adreno"
 const ADRENO_PKG = /^(?:mesa-vulkan-icd-freedreno|opencl-vendor-driver|clvk)(?:-glibc)?$/;
+// skill 必须有「## 运行链路」一节：执行 AI 没有写组件时的上下文，不写明链路它就会猜（2026-10 Blender 就是这么出事的）。
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 let bad = 0;
 const err = (r, m) => { console.log(`✗ ${r}: ${m}`); bad++; };
@@ -102,7 +103,12 @@ for (const r of recipes()) {
   }
   const sk = path.join(r.dir, "skill", "SKILL.md");
   if (!fs.existsSync(sk)) err(n, "缺 skill/SKILL.md（告诉 Claude 怎么用这个组件）");
-  else if (!/^---\nname: [a-z0-9-]+\ndescription: .+\n---/m.test(fs.readFileSync(sk, "utf8"))) err(n, "SKILL.md 开头要有 name / description");
+  else {
+    const txt = fs.readFileSync(sk, "utf8");
+    if (!/^---\nname: [a-z0-9-]+\ndescription: .+\n---/m.test(txt)) err(n, "SKILL.md 开头要有 name / description");
+    const chain = /^## 运行链路/m.test(txt);
+    if (!chain) err(n, "SKILL.md 缺「## 运行链路」一节（命令经过哪些层、每层由谁提供、缺了会怎样、怎么确认走的是哪条路）");
+  }
   adreno.set(r.id, !!(r.needs && r.needs.gpu === "adreno"));
   if ((r.roots || []).some((p) => ADRENO_PKG.test(p)) && !(r.needs && r.needs.gpu === "adreno"))
     err(n, `roots 带了只对骁龙有用的包（${r.roots.filter((p) => ADRENO_PKG.test(p)).join(", ")}），needs.gpu 要写 "adreno"`);

@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "libreoffice",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "LibreOffice（无头）", "en": "LibreOffice (headless)" },
   "desc": {
     "zh": "LibreOffice 无头模式：把 Office 文档（docx / xlsx / pptx / odt / ods / fodt…）转成 PDF 或别的格式。没有图形界面，只能命令行转换。",

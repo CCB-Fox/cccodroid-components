@@ -17,6 +17,35 @@ music --selftest
 四件工具：**fluidsynth**（MIDI → 音频）、**SuperCollider**（从零合成 / 算法作曲，离线渲染）、
 **sox**（后期）、**aubio**（分析）。全部无头、命令行驱动，不需要图形界面，也不需要声卡。
 
+## 运行链路
+
+`music` 是 bash 包装：它知道音色库在哪、补好可写的 TMPDIR，再把四个工具串起来。全程离线渲染，**不用声卡、不实时出声**。
+
+```
+music render 曲子.mid
+  └─ $PREFIX/bin/fluidsynth（文件输出模式）+ 音色库 GeneralUser-GS.sf2 → .wav
+     → 检查：WAV 魔数对不对、sox 量 RMS 是不是整段静音（静音退出码 3）
+
+music synth 脚本.scd                      ← SuperCollider 拆成两步，都套 timeout
+  ├─ 1) sclang -a --include-path $PREFIX/share/SuperCollider/SCClassLibrary
+  │      只把谱面写成 .osc（不在 sclang 里渲染）
+  └─ 2) scsynth -U $PREFIX/lib/SuperCollider/plugins -N <谱面.osc> … → .wav
+
+后期：sox（剪切、混音、归一化、变速…）
+分析：aubiopitch / aubioonset / aubiotrack / aubionotes（音高、起音点、节拍）
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `fluidsynth` / `sclang` / `scsynth` / `sox` / `aubio*` | 本组件：Termux 官方包 | `$PREFIX/bin/` |
+| SuperCollider 类库与 UGen 插件 | 本组件（随 supercollider 包） | `$PREFIX/share/SuperCollider/`、`$PREFIX/lib/SuperCollider/plugins/` |
+| GM 音色库 GeneralUser GS 及许可原文 | 本组件 fetch（钉在 commit 上，核对 sha256） | `$PREFIX/share/cccodroid/components/music/` |
+| `music` | 本组件 | `$PREFIX/bin/music` |
+
+- **fluidsynth 没有音色库就一个音都出不来**；不给 `--bank` 时 `music` 用内置那份。
+- 直接调 SuperCollider 的三个坑都被 `music synth` 挡住了：类库和插件路径是编译期写死的（`SC_PLUGIN_PATH` 不管用，只能用 `--include-path` / `-U`）；`Score.recordNRT` 是异步的，紧跟 `0.exit` 会打出「RENDERED、退出码 0、却没有文件」；`String.system` 在本机会挂死。所以**用 `music synth`，别在 sclang 里直接渲染**。
+- 没有声卡输出这条路：不要尝试实时播放（`fluidsynth` 不带 `-F`、`s.boot` 之类），成品给用户 WAV 文件。
+
 ## 1. MIDI → 音频
 
 ```sh

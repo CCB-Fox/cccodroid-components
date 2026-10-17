@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "godot",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "Godot 引擎（无头跑 / 导出 Android APK）", "en": "Godot engine (headless run / Android export)" },
   "desc": {
     "zh": "Godot 4 游戏引擎（Termux 的 bionic 原生构建）：无头跑工程、导入资源、把工程导出成 Android APK。没有图形界面（编辑器要屏幕，本组件不带）。带 godot-run 包装命令，导出前自动把 Android SDK 垫片和编辑器设置备好；导出模板（官方 1.28 GB 的包）不随组件发，用 godot-templates 按需装。",

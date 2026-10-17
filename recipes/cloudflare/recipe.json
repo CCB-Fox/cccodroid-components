@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "cloudflare",
   "kind": "termux",
-  "revision": 3,
+  "revision": 4,
   "version": "4.151.1",
   "name": { "zh": "Cloudflare（wrangler）", "en": "Cloudflare (wrangler)" },
   "desc": {

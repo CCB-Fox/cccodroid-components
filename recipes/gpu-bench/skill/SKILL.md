@@ -22,6 +22,31 @@ description: 看本机 GPU 信息和跑分（cccodroid 的 gpu-bench 组件）�
 gpu-bench --selftest      # 约 10 秒：三个工具各真跑一遍 + 核对设备是 Adreno
 ```
 
+## 运行链路
+
+```
+gpu-bench（bash 包装，$PREFIX/bin/gpu-bench）
+  ├─ info / opencl：clinfo、clpeak
+  │    └─ gpu-run --opencl（gpu-driver 组件）把 /vendor/lib64/libOpenCL.so 拷进
+  │       ~/.cccodroid/gpu-driver/opencl/ 并挂到 LD_LIBRARY_PATH
+  │       → 高通厂商 OpenCL 驱动 → Adreno
+  │       （没有 gpu-run 时退回直接把 /vendor/lib64 挂进 LD_LIBRARY_PATH）
+  └─ vulkan：vkmark 直接启动
+       → $PREFIX/lib 里的 Vulkan 加载器按默认目录 $PREFIX/share/vulkan/icd.d/ 找 ICD
+       → gpu-driver 装的 Turnip → /dev/kgsl-3d0 → Adreno
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `gpu-bench` 包装 | 本组件 | `$PREFIX/bin/gpu-bench` |
+| `clinfo` / `vkmark` / `clpeak` | 本组件：Termux 官方包（vkmark 来自 x11 仓库） | `$PREFIX/bin/` |
+| `gpu-run`、Turnip、Vulkan 加载器 | **gpu-driver 组件**（本组件的依赖） | `$PREFIX/bin/gpu-run`、`$PREFIX/lib/`、`$PREFIX/share/vulkan/icd.d/` |
+| OpenCL 驱动 | 设备厂商（`/vendor/lib64/libOpenCL.so`），不是 Turnip | 现拷到 `~/.cccodroid/gpu-driver/opencl/` |
+
+- **OpenCL 跑分测的是厂商驱动，Vulkan 跑分测的是 Turnip**，两者不是同一个驱动，数字不能互相印证。
+- **三个工具都会悄悄出错**：clinfo 找不到平台也返回 0；clpeak 找不到 GPU 会拿 CPU 顶上，输出看着和 GPU 跑分一样；vkmark 场景名写错只给 0 分。`gpu-bench` 会把这些情况挡下来报错，所以只能经它调用（详见下文「为什么必须走 gpu-bench」）。
+- 这些都是 bionic 程序；glibc 侧的 OpenCL（clvk）不在这条链上，要测它用 clvk-glibc 组件的 `clvk-info`。
+
 ## 三条常用命令
 
 ```sh

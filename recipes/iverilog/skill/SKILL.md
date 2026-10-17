@@ -34,6 +34,27 @@ iverilog-run --no-scan tb.v               # 本来就要打印以 ERROR: 开头�
 iverilog-run --selftest                   # 自检（9 项，约 4 秒）
 ```
 
+## 运行链路
+
+```
+iverilog-run [选项] tb.v dut.v [+plusarg]（bash 包装，$PREFIX/bin/iverilog-run）
+  ├─ 整理参数：选项挪到源文件前面，+plusarg 留给仿真
+  ├─ 编译：$PREFIX/bin/iverilog -o <临时目录>/sim.vvp …   ← 生成字节码
+  ├─ 仿真：timeout <秒> $PREFIX/bin/vvp -n sim.vvp +plusarg   ← -n：$stop 当 $finish
+  │        输出同时写到 <临时目录>/sim.log
+  └─ 扫日志里的 ERROR: / FATAL: → 退出码 4；超时 → 退出码 3（多半少了 $finish）
+看波形：testbench 里 $dumpfile/$dumpvars 写出 .vcd → vcd2svg（python3 标准库）→ .svg
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `iverilog` / `vvp` | 本组件：Termux 官方包 `iverilog` | `$PREFIX/bin/` |
+| `iverilog-run` / `vcd2svg` | 本组件 | `$PREFIX/bin/` |
+| `python3`（vcd2svg 用） | 底座 | `$PREFIX/bin/python3` |
+
+- 纯 CPU、不联网。本机**没有 GTKWave** 之类的波形查看器，看波形只有 vcd2svg 这条路。
+- 直接调 `vvp` 的两个陷阱都被包装挡住了：testbench 没写 `$finish` 会**一声不吭地永远跑下去**；`$readmemh` 读不到文件、`$error` 只打一行 ERROR 然后返回 0。所以**一律用 `iverilog-run`**。
+
 ## 先自检
 
 ```sh

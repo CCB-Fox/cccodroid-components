@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gh",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "GitHub CLI（gh）", "en": "GitHub CLI (gh)" },
   "desc": {
     "zh": "GitHub 官方命令行：开 PR、看 Issue、管 Release、跑 Actions。登录后 git 的 https 推送也直接可用。",

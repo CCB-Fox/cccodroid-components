@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "openscad",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "version": "2021.01",
   "name": { "zh": "OpenSCAD（脚本建模）", "en": "OpenSCAD (script modelling)" },
   "desc": {

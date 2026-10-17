@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "yosys",
   "kind": "termux",
-  "revision": 3,
+  "revision": 4,
   "name": {
     "zh": "Yosys（Verilog 综合）",
     "en": "Yosys (Verilog synthesis)"

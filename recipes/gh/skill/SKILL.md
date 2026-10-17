@@ -18,6 +18,26 @@ gh auth status
 - 登录后运行一次 `gh auth setup-git`，之后 `git push` 走 https 就不用再输密码。
 - 令牌由 gh 自己保存（`~/.config/gh/hosts.yml`），**不要读取、打印或转述它的内容**。
 
+## 运行链路
+
+```
+gh（$PREFIX/bin/gh，Termux 官方包的原生程序，没有包装脚本）
+  ├─ 令牌      ~/.config/gh/hosts.yml   ← 用户自己 gh auth login 写进去
+  ├─ 网络      直连 api.github.com / github.com（https）
+  └─ git 集成  gh auth setup-git 把 gh 登记成 git 的 https 凭据助手
+               → 之后 git push https://github.com/… 时由 git 调 gh 取令牌
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `gh` 本体 | Termux 官方包 `gh`，CI 把前缀 `com.termux` 等长改写成本应用后打包 | `$PREFIX/bin/gh` |
+| `git` | 底座（不在本组件里） | `$PREFIX/bin/git` |
+| 登录令牌 | 用户在终端里 `gh auth login` | `~/.config/gh/hosts.yml`（**别读**） |
+
+- 没有任何包装，`gh` 报什么就是什么。`gh auth status` 说没登录，就是没登录 —— 不要去找别的令牌。
+- `git push` 走 SSH（`git@github.com:`）的仓库**不经过 gh**，要的是用户自己的 SSH 钥匙；gh 只管 https。
+- 网络失败（`dial tcp`、`TLS`）是网络问题，不是登录问题。
+
 ## 常用
 
 ```sh

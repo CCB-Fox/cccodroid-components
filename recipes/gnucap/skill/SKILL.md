@@ -24,6 +24,25 @@ gnucap-run --selftest
 最后一行 `===== 总结 ===== 瞬态=OK 末值=…V` 就是好的。约 0.1 秒。
 它真跑一个 RC 充电电路，把 5τ 处的电压和解析解 5·(1−e⁻⁵)=4.96631 V 对一遍。
 
+## 运行链路
+
+```
+gnucap-run 电路.ckt（bash 包装，$PREFIX/bin/gnucap-run）
+  └─ $PREFIX/bin/gnucap -b 电路.ckt   ← Termux 官方包，bionic 原生，批处理模式
+       输出先落到 $TMPDIR 的临时日志
+  → 包装扫日志里的错误标记（"^ ?"、"can't find:"）→ 有就退出码 1 并给提示
+  → 没错就把结果原样打到 stdout（数据列）
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| `gnucap` 本体 | 本组件：Termux 官方包 `gnucap` | `$PREFIX/bin/gnucap` |
+| `gnucap-run` | 本组件 | `$PREFIX/bin/gnucap-run` |
+| 画图（可选） | 手写 SVG（标准库 Python）；转 PNG 用底座的 `magick` | — |
+
+- 纯 CPU、不联网、没有图形界面。
+- **gnucap 自己出了错也返回 0**（元件名写错、命令少了点、`.print` 放在分析命令后面都是 rc=0），所以**一律用 `gnucap-run`**，它把这些挡成退出码 1。直接调 `gnucap` 看到 rc=0 不代表算对了。
+
 ## 跑一个电路
 
 ```sh

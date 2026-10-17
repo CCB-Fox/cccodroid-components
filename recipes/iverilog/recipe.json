@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "iverilog",
   "kind": "termux",
-  "revision": 2,
+  "revision": 3,
   "name": { "zh": "Icarus Verilog（Verilog 仿真）", "en": "Icarus Verilog (simulation)" },
   "desc": {
     "zh": "Verilog 仿真：编译 RTL 和 testbench、跑仿真、看 $display 输出、导出 VCD 波形并画成时序图。命令行批处理，没有图形界面。",

@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "clvk-glibc",
   "kind": "glibc",
-  "revision": 1,
+  "revision": 2,
   "version": "2026.10.15",
   "name": { "zh": "OpenCL 组件（clvk，glibc）", "en": "OpenCL component (clvk, glibc)" },
   "desc": {

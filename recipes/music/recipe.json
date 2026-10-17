@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "music",
   "kind": "termux",
-  "revision": 2,
+  "revision": 3,
   "name": { "zh": "音乐生产工作流（MIDI → 音频 · 合成 · 后期）", "en": "Music production toolchain (MIDI to audio, synthesis, mastering)" },
   "desc": {
     "zh": "把「写出来的音乐」变成「能听的音频」，并反过来让 AI 看懂自己的成品。四件事：① fluidsynth 把 MIDI 按内置的 GeneralUser GS 音色库（GM，128 种乐器 + 鼓组）渲染成 WAV；② SuperCollider 从零合成音色、写算法作曲（NRT 离线渲染，不占声卡、不实时）；③ sox 做后期 —— 裁剪、拼接、淡入淡出、归一化、变速、转 mp3/ogg；④ aubio 做分析 —— 基频、节拍、音符起始点，用来核对成品是不是跑调了、节奏对不对。全部无头、命令行驱动，不需要图形界面，也不需要声卡。配合 lilypond 组件就是完整链路：.ly 乐谱 → PDF + MIDI → 音频 → 后期。",

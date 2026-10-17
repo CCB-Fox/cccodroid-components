@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gnucap",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "gnucap（电路仿真）", "en": "gnucap (circuit simulation)" },
   "desc": {
     "zh": "另一套电路仿真器：自己一套命令语言（命令要带点前缀、探针要写在分析前面），跑瞬态 / 工作点 / 直流扫描 / 交流分析。命令行批处理，没有图形界面（要画波形就让 Claude 生成 SVG）。",
