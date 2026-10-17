@@ -40,6 +40,11 @@ case "${1:-}" in
     echo "数据目录   $DATA"
     echo "Debian 根  $DATA/data/debroot $(engine_ok && echo '（已装）' || echo '（没装）')"
     echo "glibc 根   ${CCODROID_GLIBC_ROOT:-$PREFIX/glibc}"
+    if engine_ok; then
+      . "$LIBDIR/env.sh"
+      echo "渲染后端   $CCODROID_BLENDER_GPU（GALLIUM_DRIVER=$GALLIUM_DRIVER）"
+      echo "Vulkan ICD ${VK_ICD_FILENAMES:-（无 —— 没装 gpu-driver-glibc，EEVEE 走 CPU）}"
+    fi
     exit 0 ;;
   --setup)
     shift

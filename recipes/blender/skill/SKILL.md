@@ -14,6 +14,58 @@ blender --selftest
 
 `blender --where` 看装在哪、装没装。
 
+## 运行链路（动手前先读，别猜）
+
+`blender` 命令**不是 Blender 本体**，是一层 sh 包装。一次 `blender -b …` 实际经过：
+
+```
+blender（sh 包装，$PREFIX/bin/blender）
+  └─ source lib/env.sh            装配环境：库路径、TMPDIR、字体、GPU 驱动
+       └─ $PREFIX/glibc/lib/ld-linux-aarch64.so.1 --library-path <库路径>
+            └─ ~/.cccodroid/blender/data/debroot/usr/bin/blender   ← Debian 的 Blender 本体
+                 ├─ 合成 / 编码 / Python 批处理 → 纯 CPU，到此为止
+                 └─ EEVEE（3D）→ EGL（Debian 的 Mesa，surfaceless）
+                                  → Zink（把 OpenGL 转成 Vulkan）
+                                  → Vulkan loader
+                                  → Turnip（gpu-driver-glibc 组件提供）
+                                  → /dev/kgsl-3d0 → Adreno GPU
+```
+
+| 这一环 | 由谁提供 | 在哪 |
+|---|---|---|
+| 包装脚本与环境装配 | 本组件 | `$PREFIX/bin/blender`、`$PREFIX/share/cccodroid/components/blender/lib/env.sh` |
+| Blender 本体 + 404 个依赖（含 Mesa/EGL/Zink） | `blender --setup` 从 Debian trixie arm64 取 | `~/.cccodroid/blender/data/debroot/` |
+| glibc 运行时（`ld-linux`、`libc.so.6`） | base 里的 glibc 包；Debian 的 libc6 故意不装 | `$PREFIX/glibc/lib/` |
+| Turnip（Vulkan 驱动，走 KGSL） | **gpu-driver-glibc 组件**（另装） | `$PREFIX/glibc/share/vulkan/icd.d/freedreno_icd.aarch64.json` |
+
+几条由此而来的事实：
+
+- **debroot 不是系统根**，Debian 包里写死的 `/usr/...` 路径全都不对。env.sh 已经把资源、Python、字体、EGL 厂商文件、ICD 一一重定向；这就是为什么**必须经过 `blender` 包装**，别自己拼 `ld-linux` 命令。
+- 库路径只有 debroot 的库目录和 `$PREFIX/glibc/lib`，**绝不能有 `$PREFIX/lib`**（那是安卓的 bionic libc，混进去满屏 `version 'LIBC' not found`）。
+- **GPU 靠 gpu-driver-glibc 的 Turnip。** Debian 根里也有一份 Turnip，但它在本机枚举不到 GPU，env.sh 不用它。
+  - 装了 gpu-driver-glibc → EEVEE 走 GPU（zink）。
+  - 没装 → env.sh 直接切到 llvmpipe（CPU 软件光栅化），照样出图，慢约 10 倍。不会报错，所以要看 `--where`。
+- 要换驱动只用 `ICD=<icd.json> blender …`，别手改 `VK_ICD_FILENAMES` / `LD_LIBRARY_PATH`。
+
+### 动手前确认这三件事
+
+```sh
+blender --where
+# Debian 根  …/debroot（已装）            ← 没装就先 blender --setup（先问用户，见下）
+# 渲染后端   zink（GALLIUM_DRIVER=zink）  ← zink = GPU；cpu = 软件渲染
+# Vulkan ICD …/glibc/share/vulkan/icd.d/freedreno_icd.aarch64.json
+```
+
+渲染后端是 `cpu` 而用户要 3D 渲染：告诉用户装「GPU 驱动（glibc）」组件能快约 10 倍，别自己去找驱动。
+
+### GPU 的实测与边界
+
+- 实测（本机 Adreno）：1280×720 / 32 采样 **5.7 s（zink）vs 56.7 s（llvmpipe）**。
+- 渲大图前先用 `scene.render.resolution_percentage = 25` 试一帧，按耗时估算再渲正式的。
+- ⚠️ `--gpu-backend vulkan` **会崩**，别用（4.3 的 Vulkan 后端是实验特性）。
+- `/dev/dri` 存在不等于能用（SELinux 挡着），GPU 只走 `/dev/kgsl-3d0`。
+- 要确认 GPU 真的生效：同一个文件 `GALLIUM_DRIVER=llvmpipe blender …` 对比耗时。
+
 ## 第一次用：要先装（**先问用户**）
 
 ```sh
@@ -124,18 +176,11 @@ bpy.ops.render.render(animation=True)                    # → clip0001-0120.mp4
    `/system/fonts/` 下还有 `NotoSansCJK-Bold.ttc` 等；不指定字体中文会是空白/方块。
 2. 用 `magick -font … -annotate` 或 typst 先渲成 PNG，再用 `CompositorNodeImage` 贴上去。
 
-## GPU
-
-- Blender 的 EEVEE（3D 渲染）走 **EGL surfaceless → Zink → Turnip → KGSL**，组件已经配好；
-  用 `blender --where` 能看到 glibc 根。实测（本机，Adreno）：1280×720/32 采样 **5.7 s（zink）vs 56.7 s（llvmpipe）**。
-- 纯合成、编码、Python 批处理**不吃 GPU**，走 CPU（多核并行）。
-- ⚠️ `--gpu-backend vulkan` **会崩**，别用。`/dev/dri` 存在不等于能用（SELinux 挡着，走的是 `/dev/kgsl-3d0`）。
-- 想看 GPU 有没有生效：临时 `GALLIUM_DRIVER=llvmpipe blender …` 对比耗时。
-
 ## 坑（都是真踩过的）
 
 | 现象 | 原因 / 怎么办 |
 |---|---|
+| EEVEE 渲染很慢、迟迟不出图 | 先 `blender --where`：渲染后端是 `cpu` 就是没装 gpu-driver-glibc，走的软件渲染；见「运行链路」 |
 | 渲染"成功"了（返回 `FINISHED`、退出码 0）但**没有文件** | `bpy.ops.render.render()` 不加 `write_still=True` 不写盘 |
 | 脚本报错但 `blender` 退出码还是 0 | 漏了 `--python-exit-code 1` |
 | 打开文件/写临时文件报 `No such file or directory` | 安卓没有可写的根级临时目录。组件已把 `TMPDIR` 指到自己的数据目录；**你自己 fork 的进程要照抄这个 TMPDIR** |

@@ -6,9 +6,9 @@
 #      export LD_LIBRARY_PATH="$LIB"          # 只能最后一行导，见下
 #      exec "$LDSO" --library-path "$LIB" <程序> <参数...>
 #
-#  GPU 链路（要用上得装补丁版 Mesa，见 SKILL.md）:
-#    Blender → EGL(Mesa surfaceless) → Zink(GL→Vulkan) → libvulkan
-#            → Turnip(KGSL 后端) → /dev/kgsl-3d0 → Adreno
+#  GPU 链路（Turnip 由 gpu-driver-glibc 组件提供，没装就走 CPU；全貌见 SKILL.md「运行链路」）:
+#    Blender → EGL(Debian 的 Mesa, surfaceless) → Zink(GL→Vulkan) → Vulkan loader
+#            → Turnip(gpu-driver-glibc, KGSL 后端) → /dev/kgsl-3d0 → Adreno
 #
 #  与上游包体（blender-cli-android）的差异只有两处：
 #    · 包体根 ROOT 换成组件数据目录 $HOME/.cccodroid/blender（可用环境变量覆盖）
@@ -134,29 +134,41 @@ export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
 export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-$ROOT/data/cache/shader}"
 mkdir -p "$MESA_SHADER_CACHE_DIR" 2>/dev/null
 
-# 4) Turnip 走 KGSL。
-#    /dev/kgsl-3d0 对普通应用是 0666 可直接读写；
-#    /dev/dri/renderD128 虽然存在，但 SELinux 拒绝 untrusted_app 打开 ——
-#    所以只能用 KGSL 后端。补丁包（或 Debian 的 mesa-vulkan-drivers）自带的
-#    ICD 写的是绝对路径 /usr/lib/...，在非标准根下无效，这里生成一份修好的。
-ICD_SRC="${ICD:-$B/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json}"
-ICD_FIXED="$ROOT/etc/patched_icd.json"
-if [ -f "$ICD_SRC" ]; then
-  mkdir -p "$ROOT/etc" 2>/dev/null
-  ICD_TMP="$ICD_FIXED.tmp.$$"
-  rm -f "$ICD_TMP" 2>/dev/null
-  # 只替换开头的 "/usr/ ，不能替换中间的 /usr/lib/ ——
-  # 否则 aarch64-linux-gnu 会被重复拼接成 .../usr/lib/aarch64-linux-gnu/usr/lib/...
-  sed "s|\"/usr/|\"$B/usr/|g" "$ICD_SRC" > "$ICD_TMP" 2>/dev/null
-  if [ -s "$ICD_TMP" ]; then
-    mv -f "$ICD_TMP" "$ICD_FIXED" 2>/dev/null
+# 4) Turnip 必须是能走 KGSL 的那份 —— 来自 gpu-driver-glibc 组件。
+#    /dev/kgsl-3d0 对普通应用是 0666；/dev/dri/* 被 SELinux 挡死。
+#    Debian 根里自带的 Turnip（mesa-vulkan-drivers）在本机枚举不到 GPU，
+#    2026-10-18 真机：默认用它时 EEVEE 迟迟不出图；换成 gpu-driver-glibc 那份，小图 7.8 秒。
+#    所以 ICD 的优先级是：
+#      ICD=<json>（手动指定） > gpu-driver-glibc 的 Turnip > 没有 → 明确走软件渲染
+#    绝不悄悄用 Debian 那份：用不了的 ICD 只会让 zink 失败、行为不可预期。
+BL_ICD_SRC=""
+if [ -n "${ICD:-}" ] && [ -f "$ICD" ]; then
+  BL_ICD_SRC="$ICD"
+elif [ -f "$GLIBC/share/vulkan/icd.d/freedreno_icd.aarch64.json" ]; then
+  BL_ICD_SRC="$GLIBC/share/vulkan/icd.d/freedreno_icd.aarch64.json"
+fi
+
+BL_GPU="cpu"
+if [ -n "$BL_ICD_SRC" ]; then
+  # ICD 里的 library_path 若是非本机的绝对路径（例如 Debian 的 "/usr/lib/…"），
+  # 换成本机能打开的那份，写进组件自己的 etc/。只替换开头的 "/usr/，
+  # 不能替换中间的 /usr/lib/，否则会拼出 …/usr/lib/aarch64-linux-gnu/usr/lib/…
+  BL_ICD="$BL_ICD_SRC"
+  if grep -q '"library_path"[^"]*"/usr/' "$BL_ICD_SRC" 2>/dev/null; then
+    mkdir -p "$ROOT/etc" 2>/dev/null
+    ICD_TMP="$ROOT/etc/patched_icd.json.tmp.$$"
+    sed "s|\"/usr/|\"$B/usr/|g" "$BL_ICD_SRC" > "$ICD_TMP" 2>/dev/null
+    if [ -s "$ICD_TMP" ]; then mv -f "$ICD_TMP" "$ROOT/etc/patched_icd.json" && BL_ICD="$ROOT/etc/patched_icd.json"; fi
+    rm -f "$ICD_TMP" 2>/dev/null
   fi
-  rm -f "$ICD_TMP" 2>/dev/null
+  export VK_ICD_FILENAMES="$BL_ICD" VK_DRIVER_FILES="$BL_ICD"
+  [ "$GALLIUM_DRIVER" = "zink" ] && BL_GPU="zink"
+else
+  # 没有可用的 Turnip：直接声明走 llvmpipe（CPU），而不是让 zink 去撞墙。
+  # 慢 10 倍左右，但结果可预期。要 GPU 就装 gpu-driver-glibc 组件。
+  if [ "$GALLIUM_DRIVER" = "zink" ]; then
+    export GALLIUM_DRIVER=llvmpipe
+    unset MESA_LOADER_DRIVER_OVERRIDE
+  fi
 fi
-# 用「文件是否存在」判断，而不是 ${VAR:-default} ——
-# 后者在生成失败时仍会指向一个不存在的文件
-if [ -f "$ICD_FIXED" ]; then
-  export VK_ICD_FILENAMES="$ICD_FIXED"
-elif [ -f "$ICD_SRC" ]; then
-  export VK_ICD_FILENAMES="$ICD_SRC"
-fi
+export CCODROID_BLENDER_GPU="$BL_GPU"
