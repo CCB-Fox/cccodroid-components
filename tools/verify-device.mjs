@@ -42,6 +42,13 @@ let TOKEN;
 try { TOKEN = fs.readFileSync(process.env.CCAPP_TOKEN_FILE || path.join(HOME, ".gateway-token"), "utf8").trim(); }
 catch { console.log("✗ 读不到网关令牌：要在 cccodroid 的终端里跑"); process.exit(2); }
 
+// --pr 要用 gh：开跑前就查，别等验完一大圈才发现开不了 PR
+if (PR) {
+  const g = spawnSync("gh", ["auth", "status"], { encoding: "utf8", env: { ...process.env, PATH: path.join(PREFIX, "bin") + ":" + (process.env.PATH || "") } });
+  if (g.error) { console.log("✗ --pr 要用 gh，这里没有：先在扩展页装「GitHub CLI」组件并登录，或者去掉 --pr、手动提记录"); process.exit(2); }
+  if (g.status !== 0) { console.log("✗ --pr 要用 gh，但还没登录：先在扩展页的 GitHub 卡片里登录，或者去掉 --pr、手动提记录"); process.exit(2); }
+}
+
 if (OUT) fs.writeFileSync(OUT, "");
 const log = (s = "") => { console.log(s); if (OUT) fs.appendFileSync(OUT, s + "\n"); };
 const api = async (p, body) => {
@@ -169,6 +176,14 @@ if (!KEEP && ir.ok) {
   const left = (r1.files || []).filter((f) => { try { fs.lstatSync(path.join(PREFIX, f.replace(/^usr\//, ""))); return true; } catch { return false; } });
   ok(left.length === 0, left.length ? `卸载后还剩 ${left.length} 个它的文件（${left.slice(0, 3).join("；")}）` : "它放进去的文件都清掉了");
   if (r1.skill) ok(!fs.existsSync(path.join(HOME, ".claude", "skills", r1.skill)), `skill ${r1.skill} 删掉了`);
+  // 组件自己攒的运行数据（~/.cccodroid/<id>/：下载缓存、解开的运行环境）卸载不删，是有意的。不算失败，但报出来，
+  // 免得挨个验一圈悄悄堆出几个 GB；cccodroid 0.2.2 起卸载时会问用户要不要一起删
+  const data = path.join(HOME, ".cccodroid", ID);
+  if (fs.existsSync(data)) {
+    const du = sh(`du -sk "${data}"`);
+    const kb = Number((du.stdout || "").split(/\s/)[0]) || 0;
+    log(`   ℹ 运行数据 ~/.cccodroid/${ID} 还留着 ${kb >= 1024 ? (kb / 1024).toFixed(1) + " MB" : kb + " KB"}（卸载不删；不需要了就删掉这个目录）`);
+  }
 }
 // 原来就装着的要装回去，它的依赖得留着；--keep 同理
 if (!KEEP && !wasInstalled) for (const d of depsAdded.reverse()) { const r = await remove(d); log(`   卸掉本脚本装的依赖 ${d}：${r.ok ? "ok" : r.message}`); }
