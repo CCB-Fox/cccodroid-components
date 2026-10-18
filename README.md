@@ -14,7 +14,7 @@ cccodroid reads this repository since 0.1.10. Preset components such as the brow
 |---|---|---|---|---|
 | `gh` | GitHub CLI: pull requests, issues, releases, Actions | Dev | | MIT |
 | `godot` | Godot 4 engine: headless runs, Android APK export | Dev | | MIT |
-| `blender` | Headless Blender 4.3: Python-scripted compositing, motion graphics and video output; 3D rendering can use the GPU | Media | Downloads the engine from Debian on first use (about 267 MB) | GPL-2.0-or-later |
+| `blender` | Headless Blender 4.3: Python-scripted compositing, motion graphics and video output; 3D rendering on the Adreno GPU (Vulkan 1.4) | Media | Downloads the engine on first use: about 267 MB from Debian plus an 11 MB patched Mesa for the GPU (the setup follows [blender-cli-android](https://github.com/greyoak111/blender-cli-android)) | GPL-2.0-or-later |
 | `lilypond` | LilyPond: music notation from plain text — publication-grade PDF, plus PNG, SVG and MIDI | Media | | GPL-3.0-or-later |
 | `music` | Music production toolchain: MIDI to audio (fluidsynth), SuperCollider synthesis, sox mastering, aubio analysis | Media | Bundles a GM soundfont (31 MB) | LGPL-2.1-or-later AND GPL-3.0-or-later AND GPL-2.0-only AND LicenseRef-GeneralUser-GS-2.0 |
 | `libreoffice` | Headless LibreOffice: convert documents, export PDF | Office | | MPL-2.0 AND LGPL-3.0 |
