@@ -403,6 +403,15 @@
         "by": "greyoak111",
         "carriedFrom": "4.3.2-r2"
       }
+    },
+    "4.3.2-r4": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.10",
+        "checks": "installed from signed index; placed 8, shared 0; skill blender installed; selftest exit 0: ===== 总结 ===== 合成=OK 输出=PNG+MP4 帧数=12 版本=4.3.2; removed cleanly; devkit base unchanged; upgraded from r2 on device: selftest auto-installed the patched Mesa (11 MB) on top of the existing debroot; EEVEE monkey 640x480/32spp renderer=zink Vulkan 1.4 (Turnip Adreno 725), 6.68 s warm vs llvmpipe 84.00 s",
+        "by": "greyoak111"
+      }
     }
   },
   "cloudflare": {
