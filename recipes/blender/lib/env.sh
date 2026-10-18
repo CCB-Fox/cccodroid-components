@@ -6,9 +6,9 @@
 #      export LD_LIBRARY_PATH="$LIB"          # 只能最后一行导，见下
 #      exec "$LDSO" --library-path "$LIB" <程序> <参数...>
 #
-#  GPU 链路（Turnip 由 gpu-driver-glibc 组件提供，没装就走 CPU；全貌见 SKILL.md「运行链路」）:
-#    Blender → EGL(Debian 的 Mesa, surfaceless) → Zink(GL→Vulkan) → Vulkan loader
-#            → Turnip(gpu-driver-glibc, KGSL 后端) → /dev/kgsl-3d0 → Adreno
+#  GPU 链路（和上游 blender-cli-android 一致；全貌见 SKILL.md「运行链路」）:
+#    Blender → EGL(补丁版 Mesa, surfaceless) → Zink(GL→Vulkan) → Vulkan loader
+#            → Turnip(补丁版 Mesa 26.2, Vulkan 1.4, KGSL 后端) → /dev/kgsl-3d0 → Adreno
 #
 #  与上游包体（blender-cli-android）的差异只有两处：
 #    · 包体根 ROOT 换成组件数据目录 $HOME/.cccodroid/blender（可用环境变量覆盖）
@@ -134,19 +134,24 @@ export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
 export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-$ROOT/data/cache/shader}"
 mkdir -p "$MESA_SHADER_CACHE_DIR" 2>/dev/null
 
-# 4) Turnip 必须是能走 KGSL 的那份 —— 来自 gpu-driver-glibc 组件。
-#    /dev/kgsl-3d0 对普通应用是 0666；/dev/dri/* 被 SELinux 挡死。
-#    Debian 根里自带的 Turnip（mesa-vulkan-drivers）在本机枚举不到 GPU，
-#    2026-10-18 真机：默认用它时 EEVEE 迟迟不出图；换成 gpu-driver-glibc 那份，小图 7.8 秒。
-#    所以 ICD 的优先级是：
-#      ICD=<json>（手动指定） > gpu-driver-glibc 的 Turnip > 没有 → 明确走软件渲染
-#    绝不悄悄用 Debian 那份：用不了的 ICD 只会让 zink 失败、行为不可预期。
-BL_ICD_SRC=""
+# 4) Turnip：用补丁版 Mesa 里的那份（Vulkan 1.4.353，走 KGSL）—— 和上游 blender-cli-android 一致。
+#    它由 blender --setup 解进 Debian 根（install-debroot.py 的最后一步），
+#    Debian 自己的闭包里没有 Turnip，所以 Debian 根里有这个 ICD 就一定是补丁版那份。
+#    /dev/kgsl-3d0 对普通应用是 0666；/dev/dri/* 被 SELinux 挡死，所以只能走 KGSL。
+#    优先级：ICD=<json>（手动指定） > 补丁版（Debian 根里） > gpu-driver-glibc 组件的 Turnip（Mesa 24.2，Vulkan 1.3）
+#            > 都没有 → 明确切 llvmpipe（CPU）
+#    2026-10-18 教训：r2 指向 Debian 根里的 ICD，但组件当时漏装了补丁版 Mesa，那个文件根本不存在，
+#    zink 报 VK_ERROR_INCOMPATIBLE_DRIVER、EEVEE 不出图。缺哪层要明说，不能悄悄撞墙。
+BL_ICD_SRC="" BL_GPU_FROM=""
 if [ -n "${ICD:-}" ] && [ -f "$ICD" ]; then
-  BL_ICD_SRC="$ICD"
+  BL_ICD_SRC="$ICD" BL_GPU_FROM="ICD=$ICD"
+elif [ -f "$B/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json" ]; then
+  BL_ICD_SRC="$B/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json" BL_GPU_FROM="补丁版 Mesa"
 elif [ -f "$GLIBC/share/vulkan/icd.d/freedreno_icd.aarch64.json" ]; then
-  BL_ICD_SRC="$GLIBC/share/vulkan/icd.d/freedreno_icd.aarch64.json"
+  BL_ICD_SRC="$GLIBC/share/vulkan/icd.d/freedreno_icd.aarch64.json" BL_GPU_FROM="gpu-driver-glibc"
 fi
+[ "$BL_GPU_FROM" = "补丁版 Mesa" ] || [ -n "${ICD:-}" ] || \
+  echo "blender: 补丁版 Mesa 没装，GPU 退到 ${BL_GPU_FROM:-CPU（llvmpipe）}；跑一次 blender --setup 补上（约 11 MB）" >&2
 
 BL_GPU="cpu"
 if [ -n "$BL_ICD_SRC" ]; then
@@ -162,10 +167,10 @@ if [ -n "$BL_ICD_SRC" ]; then
     rm -f "$ICD_TMP" 2>/dev/null
   fi
   export VK_ICD_FILENAMES="$BL_ICD" VK_DRIVER_FILES="$BL_ICD"
-  [ "$GALLIUM_DRIVER" = "zink" ] && BL_GPU="zink"
+  [ "$GALLIUM_DRIVER" = "zink" ] && BL_GPU="zink（$BL_GPU_FROM）"
 else
   # 没有可用的 Turnip：直接声明走 llvmpipe（CPU），而不是让 zink 去撞墙。
-  # 慢 10 倍左右，但结果可预期。要 GPU 就装 gpu-driver-glibc 组件。
+  # 慢 5–19 倍（看场景），但结果可预期。要 GPU 就跑 blender --setup 补上补丁版 Mesa。
   if [ "$GALLIUM_DRIVER" = "zink" ]; then
     export GALLIUM_DRIVER=llvmpipe
     unset MESA_LOADER_DRIVER_OVERRIDE

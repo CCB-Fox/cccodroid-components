@@ -4,6 +4,7 @@
 为什么是 Debian：Blender 官方没有 Linux arm64 构建（只给 x64 / macOS-arm64 / Windows-arm64），
 Debian 的 arm64 包是能拿到的最新版。glibc 运行时用 Termux 的（安卓上唯一能跑的那份），
 所以这里只装 Debian 的其余包 —— libc6 跳过。
+装完再解一份补丁版 Mesa（Turnip，Vulkan 1.4）进去：Debian 的闭包里没有能用的 Turnip，GPU 靠它。
 
 安全：
   · 索引链：先取 dists/<套件>/InRelease，Packages.gz 必须和它里面记的 SHA256 对上；
@@ -46,15 +47,37 @@ EXPECT_BLENDER = "4.3.2"
 # 用 Termux 的 glibc：安卓上唯一能用的 glibc 运行时（组件依赖的 glibc 包已提供）
 SKIP = {"libc6"}
 
+# 补丁版 Mesa（lfdevs/mesa-for-android-container）：上游 blender-cli-android 安装的第 3 步。
+# Debian 的闭包里没有 Turnip（mesa-vulkan-drivers 不在 blender 的依赖里），GPU 全靠这一份：
+# Turnip 26.2（Vulkan 1.4.353，走 KGSL）+ 同版本的 gallium/zink/EGL，解进 Debian 根、盖掉 Debian 的 Mesa 25。
+# 钉死这一版：它就是上游在本机实测的那份（猴头 640×480 6.5 s，比 Debian 原生 Mesa 快约 1.4 倍）。
+# 换版本要改 URL 和 SHA256 两处，并重新真机验证。
+MESA = {
+    "name": "mesa-for-android-container 26.2.0-devel-20260610",
+    "url": "https://github.com/lfdevs/mesa-for-android-container/releases/download/"
+           "mesa-26.2.0-devel-20260610/mesa-for-android-container_26.2.0-devel-20260610_debian_trixie_arm64.tar.gz",
+    "sha256": "f84bd8cc8f4be226ec3572f5dc26798ba345494da32d9c82409df6fe396fef30",
+    "bytes": 11644241,
+}
+
 LOCK = threading.Lock()
 
 
-def http_get(url, timeout=180):
+def http_get(url, timeout=180, tries=4):
     # 不关证书校验：索引（Packages.gz）与 .deb 都从这条连接取，
     # 不校验的话下面「核对 SHA256」就形同虚设。
+    # 手机网络会断流（IncompleteRead / 连接被重置）：退避重试几次，别让一个包毁掉整次安装。
+    # 证书错误不重试 —— 那不是网络抖动，重试也没用。
     req = urllib.request.Request(url, headers={"User-Agent": "cccodroid-blender/1"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    for i in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as e:                                     # noqa: BLE001
+            if "CERTIFICATE" in str(e) or i == tries - 1:
+                raise
+            print(f"    网络中断，{2 ** i}s 后重试（{i + 1}/{tries - 1}）：{os.path.basename(url)} · {e}")
+            time.sleep(2 ** i)
 
 
 def sha256_file(path):
@@ -205,75 +228,120 @@ def inside(root_real, path):
 
 
 def extract_deb(deb, root, stats):
-    root_real = os.path.realpath(root)
     for name, blob in ar_members(deb):
         if not name.startswith("data.tar"):
             continue
         tf = tarfile.open(fileobj=tar_stream(name, blob), mode="r|")
-        for m in tf:
-            rel = m.name.lstrip("./").lstrip("/")
-            if not rel:
-                continue
-            dst = os.path.join(root, rel)
-            # 成员名带 ..、或父目录经已有软链绕到根外：跳过（Debian 官方包不会这样，防的是坏包）
-            if ".." in rel.split("/") or not inside(root_real, os.path.dirname(dst) or root):
-                with LOCK:
-                    stats["skipped"] += 1
-                continue
-            try:
-                if m.isdir():
-                    os.makedirs(dst, exist_ok=True)
-                    continue
-                parent = os.path.dirname(dst)
-                if parent:
-                    os.makedirs(parent, exist_ok=True)
-                if m.issym():
-                    target = m.linkname
-                    if target.startswith("/"):
-                        # Debian 包里有用绝对路径指到 /lib、/usr/lib 的软链；
-                        # 我们的根不是 "/"，改写成根内路径
-                        target = os.path.join(root, target.lstrip("/"))
-                    # 相对软链解析后也得在根内（只按字面算，目标此刻可能还没解出来）
-                    resolved = os.path.normpath(os.path.join(os.path.dirname(dst), target))
-                    if not (resolved == root_real or resolved.startswith(root_real + os.sep)
-                            or resolved == root or resolved.startswith(root + os.sep)):
-                        raise OSError("软链指到根外：" + m.linkname)
-                    if os.path.lexists(dst):
-                        os.remove(dst)
-                    os.symlink(target, dst)
-                    key = "links"
-                elif m.islnk():
-                    src = os.path.join(root, m.linkname.lstrip("./").lstrip("/"))
-                    if ".." in m.linkname.split("/") or not inside(root_real, src):
-                        raise OSError("硬链指到根外：" + m.linkname)
-                    if not os.path.exists(src):
-                        key = "skipped"
-                    else:
-                        if os.path.lexists(dst):
-                            os.remove(dst)
-                        os.link(src, dst)
-                        key = "links"
-                elif m.isfile():
-                    if os.path.lexists(dst):
-                        os.remove(dst)
-                    src_f = tf.extractfile(m)
-                    with open(dst, "wb") as out:
-                        while True:
-                            b = src_f.read(1 << 20)
-                            if not b:
-                                break
-                            out.write(b)
-                    os.chmod(dst, m.mode & 0o7777)
-                    key = "files"
-                else:
-                    key = "skipped"
-            except (OSError, tarfile.TarError):
-                key = "skipped"
-            with LOCK:
-                stats[key] += 1
+        extract_tar(tf, root, stats)
         tf.close()
         return
     raise ValueError("没有 data.tar.*")
+
+
+def extract_tar(tf, root, stats):
+    """把 tar 流解进 root：成员名带 ..、软链 / 硬链指到根外、经已有软链绕出去的一律跳过。
+    Debian 的 .deb 和补丁版 Mesa 的 tar.gz 都走这里。"""
+    root_real = os.path.realpath(root)
+    for m in tf:
+        rel = m.name.lstrip("./").lstrip("/")
+        if not rel:
+            continue
+        dst = os.path.join(root, rel)
+        # 成员名带 ..、或父目录经已有软链绕到根外：跳过（Debian 官方包不会这样，防的是坏包）
+        if ".." in rel.split("/") or not inside(root_real, os.path.dirname(dst) or root):
+            with LOCK:
+                stats["skipped"] += 1
+            continue
+        try:
+            if m.isdir():
+                os.makedirs(dst, exist_ok=True)
+                continue
+            parent = os.path.dirname(dst)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            if m.issym():
+                target = m.linkname
+                if target.startswith("/"):
+                    # Debian 包里有用绝对路径指到 /lib、/usr/lib 的软链；
+                    # 我们的根不是 "/"，改写成根内路径
+                    target = os.path.join(root, target.lstrip("/"))
+                # 相对软链解析后也得在根内（只按字面算，目标此刻可能还没解出来）
+                resolved = os.path.normpath(os.path.join(os.path.dirname(dst), target))
+                if not (resolved == root_real or resolved.startswith(root_real + os.sep)
+                        or resolved == root or resolved.startswith(root + os.sep)):
+                    raise OSError("软链指到根外：" + m.linkname)
+                if os.path.lexists(dst):
+                    os.remove(dst)
+                os.symlink(target, dst)
+                key = "links"
+            elif m.islnk():
+                src = os.path.join(root, m.linkname.lstrip("./").lstrip("/"))
+                if ".." in m.linkname.split("/") or not inside(root_real, src):
+                    raise OSError("硬链指到根外：" + m.linkname)
+                if not os.path.exists(src):
+                    key = "skipped"
+                else:
+                    if os.path.lexists(dst):
+                        os.remove(dst)
+                    os.link(src, dst)
+                    key = "links"
+            elif m.isfile():
+                if os.path.lexists(dst):
+                    os.remove(dst)
+                src_f = tf.extractfile(m)
+                with open(dst, "wb") as out:
+                    while True:
+                        b = src_f.read(1 << 20)
+                        if not b:
+                            break
+                        out.write(b)
+                os.chmod(dst, m.mode & 0o7777)
+                key = "files"
+            else:
+                key = "skipped"
+        except (OSError, tarfile.TarError):
+            key = "skipped"
+        with LOCK:
+            stats[key] += 1
+
+
+def install_mesa(root, base, cache, dry=False):
+    """把补丁版 Mesa 解进 Debian 根。Debian 包装好（或已装过）之后调用；装过同一份就跳过。
+    记录在 <数据目录>/installed-mesa.json —— Debian 根重装会先删掉它，保证 Mesa 永远盖在最上面。"""
+    marker = os.path.join(base, "installed-mesa.json")
+    want = {"name": MESA["name"], "sha256": MESA["sha256"]}
+    try:
+        with open(marker, encoding="utf-8") as f:
+            if json.load(f) == want and os.path.exists(os.path.join(root, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json")):
+                print(f"  补丁版 Mesa：已装（{MESA['name']}）")
+                return 0
+    except (OSError, ValueError):
+        pass
+    print(f"  补丁版 Mesa：{MESA['name']} · 下载 {MESA['bytes'] / 1048576:.0f} MB（GitHub · lfdevs）")
+    if dry:
+        return 0
+    os.makedirs(cache, exist_ok=True)
+    dest = os.path.join(cache, os.path.basename(MESA["url"]))
+    if not (os.path.exists(dest) and sha256_file(dest) == MESA["sha256"]):
+        blob = http_get(MESA["url"], timeout=600)
+        got = hashlib.sha256(blob).hexdigest()
+        if got != MESA["sha256"]:
+            print(f"  ✗ 补丁版 Mesa SHA256 不符（应为 {MESA['sha256'][:16]}… / 实得 {got[:16]}…）", file=sys.stderr)
+            return 1
+        tmp = dest + ".part"
+        with open(tmp, "wb") as f:
+            f.write(blob)
+        os.replace(tmp, dest)
+    stats = {"files": 0, "links": 0, "skipped": 0}
+    with tarfile.open(dest, mode="r:gz") as tf:
+        extract_tar(tf, root, stats)
+    if not os.path.exists(os.path.join(root, "usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so")):
+        print("  ✗ 补丁版 Mesa 解完了却没有 libvulkan_freedreno.so", file=sys.stderr)
+        return 1
+    with open(marker, "w", encoding="utf-8") as f:
+        json.dump(want, f, ensure_ascii=False, indent=1)
+    print(f"  补丁版 Mesa：装好了（{stats['files']} 个文件 · {stats['links']} 条链接）")
+    return 0
 
 
 def main():
@@ -313,11 +381,12 @@ def main():
             with open(marker, encoding="utf-8") as f:
                 if json.load(f) == plan:
                     print(f"  已经装过，内容一致：{root}")
-                    return 0
+                    return install_mesa(root, base, cache)
         except (OSError, ValueError):
             pass
 
     if dry:
+        install_mesa(root, base, cache, dry=True)
         print(f"  （--dry-run：没下载。目标：{root}）")
         return 0
 
@@ -338,6 +407,11 @@ def main():
 
     os.makedirs(root, exist_ok=True)
     os.makedirs(cache, exist_ok=True)
+    # Debian 包会盖掉补丁版 Mesa 的同名库：先作废它的记录，装完 Debian 再重新解一遍
+    try:
+        os.remove(os.path.join(base, "installed-mesa.json"))
+    except OSError:
+        pass
     print(f"  装到：{root}")
     print(f"  缓存：{cache}（.deb 留着，重装/续传不用再下）")
 
@@ -404,7 +478,7 @@ def main():
     print(f"  完成：{len(debs)} 个包 · {stats['files']} 个文件 · {stats['links']} 条链接"
           f" · 跳过 {stats['skipped']} · 共 {time.time() - t0:.0f}s")
     print(f"  Blender 在：{root}/usr/bin/blender")
-    return 0
+    return install_mesa(root, base, cache)
 
 
 if __name__ == "__main__":

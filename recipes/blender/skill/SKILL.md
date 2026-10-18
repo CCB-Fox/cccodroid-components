@@ -24,27 +24,27 @@ blender（sh 包装，$PREFIX/bin/blender）
        └─ $PREFIX/glibc/lib/ld-linux-aarch64.so.1 --library-path <库路径>
             └─ ~/.cccodroid/blender/data/debroot/usr/bin/blender   ← Debian 的 Blender 本体
                  ├─ 合成 / 编码 / Python 批处理 → 纯 CPU，到此为止
-                 └─ EEVEE（3D）→ EGL（Debian 的 Mesa，surfaceless）
+                 └─ EEVEE（3D）→ EGL（补丁版 Mesa，surfaceless）
                                   → Zink（把 OpenGL 转成 Vulkan）
                                   → Vulkan loader
-                                  → Turnip（gpu-driver-glibc 组件提供）
+                                  → Turnip（补丁版 Mesa 26.2，Vulkan 1.4，走 KGSL）
                                   → /dev/kgsl-3d0 → Adreno GPU
 ```
 
 | 这一环 | 由谁提供 | 在哪 |
 |---|---|---|
 | 包装脚本与环境装配 | 本组件 | `$PREFIX/bin/blender`、`$PREFIX/share/cccodroid/components/blender/lib/env.sh` |
-| Blender 本体 + 404 个依赖（含 Mesa/EGL/Zink） | `blender --setup` 从 Debian trixie arm64 取 | `~/.cccodroid/blender/data/debroot/` |
+| Blender 本体 + 404 个依赖 | `blender --setup` 第一步，从 Debian trixie arm64 取 | `~/.cccodroid/blender/data/debroot/` |
+| 补丁版 Mesa：Turnip + Zink + EGL（26.2，Vulkan 1.4.353） | `blender --setup` 第二步，从 GitHub [lfdevs/mesa-for-android-container](https://github.com/lfdevs/mesa-for-android-container) 取（钉死版本与 SHA256），盖在 Debian 的 Mesa 上 | 同一个 debroot；ICD 在 `debroot/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json` |
 | glibc 运行时（`ld-linux`、`libc.so.6`） | base 里的 glibc 包；Debian 的 libc6 故意不装 | `$PREFIX/glibc/lib/` |
-| Turnip（Vulkan 驱动，走 KGSL） | **gpu-driver-glibc 组件**（另装） | `$PREFIX/glibc/share/vulkan/icd.d/freedreno_icd.aarch64.json` |
 
 几条由此而来的事实：
 
 - **debroot 不是系统根**，Debian 包里写死的 `/usr/...` 路径全都不对。env.sh 已经把资源、Python、字体、EGL 厂商文件、ICD 一一重定向；这就是为什么**必须经过 `blender` 包装**，别自己拼 `ld-linux` 命令。
 - 库路径只有 debroot 的库目录和 `$PREFIX/glibc/lib`，**绝不能有 `$PREFIX/lib`**（那是安卓的 bionic libc，混进去满屏 `version 'LIBC' not found`）。
-- **GPU 靠 gpu-driver-glibc 的 Turnip。** Debian 根里也有一份 Turnip，但它在本机枚举不到 GPU，env.sh 不用它。
-  - 装了 gpu-driver-glibc → EEVEE 走 GPU（zink）。
-  - 没装 → env.sh 直接切到 llvmpipe（CPU 软件光栅化），照样出图，慢约 10 倍。不会报错，所以要看 `--where`。
+- **GPU 靠补丁版 Mesa 里的 Turnip**，不用另装别的组件。Debian 的依赖闭包里**没有** Turnip（`mesa-vulkan-drivers` 不在 Blender 的依赖里），所以 `--setup` 的第二步不能少。
+  - 补丁版装了 → EEVEE 走 GPU（zink），`--where` 显示 `zink（补丁版 Mesa）`。
+  - 没装（比如从 r3 及更早升级上来的）→ 每次运行会在 stderr 提示一句；有 gpu-driver-glibc 组件就退用它的 Turnip（Mesa 24.2，Vulkan 1.3，能用但慢些），都没有就切 llvmpipe（CPU）照样出图。**看到提示就跑 `blender --setup`**，只补这 11 MB，不会重下 Debian 的包。
 - 要换驱动只用 `ICD=<icd.json> blender …`，别手改 `VK_ICD_FILENAMES` / `LD_LIBRARY_PATH`。
 
 ### 动手前确认这三件事
@@ -52,11 +52,12 @@ blender（sh 包装，$PREFIX/bin/blender）
 ```sh
 blender --where
 # Debian 根  …/debroot（已装）            ← 没装就先 blender --setup（先问用户，见下）
-# 渲染后端   zink（GALLIUM_DRIVER=zink）  ← zink = GPU；cpu = 软件渲染
-# Vulkan ICD …/glibc/share/vulkan/icd.d/freedreno_icd.aarch64.json
+# 补丁 Mesa  已装（Turnip 26.2，Vulkan 1.4）  ← 没装就 blender --setup（约 11 MB）
+# 渲染后端   zink（补丁版 Mesa）（GALLIUM_DRIVER=zink）  ← zink = GPU；cpu = 软件渲染
+# Vulkan ICD ~/.cccodroid/blender/etc/patched_icd.json
 ```
 
-渲染后端是 `cpu` 而用户要 3D 渲染：告诉用户装「GPU 驱动（glibc）」组件能快约 10 倍，别自己去找驱动。
+渲染后端不是 `zink（补丁版 Mesa）` 而用户要 3D 渲染：跑 `blender --setup` 补上，别自己去找驱动、别手拼 `ICD=`。
 
 ### GPU 的实测与边界
 
@@ -69,14 +70,14 @@ blender --where
 ## 第一次用：要先装（**先问用户**）
 
 ```sh
-blender --setup            # 从 Debian 官方仓库取 404 个包，逐个核对 SHA256
+blender --setup            # ① Debian 官方仓库 404 个包 ② 补丁版 Mesa，全部核对 SHA256
 blender --setup --dry-run  # 只算体积，不下载
 ```
 
-- **多大**：约 **267 MB 下载 / 1.1 GB 解开**（Blender 官方没有 Linux arm64 构建，只能走 Debian arm64 的包）。
-- **从哪下**：`deb.debian.org`（trixie/arm64，只有这一个来源；`libc6` 跳过，用本机 glibc）。
+- **多大**：约 **278 MB 下载（Debian 267 MB + 补丁版 Mesa 11 MB）/ 1.1 GB 解开**（Blender 官方没有 Linux arm64 构建，只能走 Debian arm64 的包）。
+- **从哪下**：`deb.debian.org`（trixie/arm64；`libc6` 跳过，用本机 glibc）+ `github.com/lfdevs/mesa-for-android-container` 的 Release（补丁版 Mesa，钉死 26.2.0-devel-20260610）。
 - **装到哪**：`~/.cccodroid/blender/data/`（应用私有目录，不碰系统分区）；`.deb` 缓存留在 `data/debcache`，267 MB，可删。
-- 装完不用再装；重复跑 `--setup` 会认出"内容一致"直接跳过。
+- 装完不用再装；重复跑 `--setup` 会认出"内容一致"直接跳过，只补缺的那一步。
 
 ⚠️ **跑之前先告诉用户体积并征得同意**（首次约 2~10 分钟，看网速）。没装过时直接跑自检或渲染，也会先触发这一步。
 
@@ -180,7 +181,8 @@ bpy.ops.render.render(animation=True)                    # → clip0001-0120.mp4
 
 | 现象 | 原因 / 怎么办 |
 |---|---|
-| EEVEE 渲染很慢、迟迟不出图 | 先 `blender --where`：渲染后端是 `cpu` 就是没装 gpu-driver-glibc，走的软件渲染；见「运行链路」 |
+| EEVEE 渲染很慢、迟迟不出图 | 先 `blender --where`：「补丁 Mesa 没装」就跑 `blender --setup` 补上；渲染后端是 `cpu` 说明走的软件渲染。见「运行链路」 |
+| `ZINK: vkCreateInstance failed (VK_ERROR_INCOMPATIBLE_DRIVER)` | 拿到的 ICD 指向不存在或用不了的驱动。别手改 `VK_ICD_FILENAMES`，跑 `blender --setup` 后看 `--where` |
 | 渲染"成功"了（返回 `FINISHED`、退出码 0）但**没有文件** | `bpy.ops.render.render()` 不加 `write_still=True` 不写盘 |
 | 脚本报错但 `blender` 退出码还是 0 | 漏了 `--python-exit-code 1` |
 | 打开文件/写临时文件报 `No such file or directory` | 安卓没有可写的根级临时目录。组件已把 `TMPDIR` 指到自己的数据目录；**你自己 fork 的进程要照抄这个 TMPDIR** |
@@ -204,6 +206,6 @@ bpy.ops.render.render(animation=True)                    # → clip0001-0120.mp4
 
 ## 要先问用户的事
 
-- `blender --setup`：下载 267 MB（见上）。
+- `blender --setup`：首次下载约 278 MB（见上）；只补补丁版 Mesa 时约 11 MB，也说一声。
 - 覆盖或删除 `/sdcard/cccodroid/` 下已有文件之前，先问一句。
 - 渲染大分辨率/长片段前报一下预计耗时和体积（10 秒 1080p 大约几十 MB）。
