@@ -5,7 +5,7 @@
 #    blender -b --python job.py        # 无头跑 Python：合成/渲染/批处理都这么用
 #    blender -b scene.blend -f 1       # 渲染第 1 帧
 #    blender --version
-#    blender --setup [--dry-run]       # 首次安装 Debian 用户空间（约 267 MB）
+#    blender --setup [--dry-run]       # 首次安装 Debian 用户空间（约 267 MB）+ 补丁版 Mesa（约 11 MB）
 #    blender --selftest                # 无头合成自检（没装过会先装）
 #    blender --where                   # 打印路径与状态（诊断）
 #
@@ -32,6 +32,8 @@ usage() { sed -n '2,16p' "$SELF" | sed 's/^#\{1,2\} \{0,1\}//'; exit "${1:-0}"; 
 # ⚠️ 别拿「Debian 的 libc.so.6 在不在」当判据 —— 我们按设计跳过 libc6
 # （glibc 运行时用 Termux 那份），Debian 根里永远没有 libc.so.6。
 engine_ok() { [ -x "$BL" ]; }
+# GPU 用的补丁版 Mesa（Turnip）装了没：install-debroot.py 装完会写这个记录
+mesa_ok() { [ -f "$DATA/data/installed-mesa.json" ]; }
 
 case "${1:-}" in
   -h|--help) usage 0 ;;
@@ -39,22 +41,26 @@ case "${1:-}" in
     echo "组件目录   $LIBDIR"
     echo "数据目录   $DATA"
     echo "Debian 根  $DATA/data/debroot $(engine_ok && echo '（已装）' || echo '（没装）')"
+    echo "补丁 Mesa  $(mesa_ok && echo '已装（Turnip 26.2，Vulkan 1.4）' || echo '没装 —— blender --setup 补上（约 11 MB）')"
     echo "glibc 根   ${CCODROID_GLIBC_ROOT:-$PREFIX/glibc}"
     if engine_ok; then
       . "$LIBDIR/env.sh"
       echo "渲染后端   $CCODROID_BLENDER_GPU（GALLIUM_DRIVER=$GALLIUM_DRIVER）"
-      echo "Vulkan ICD ${VK_ICD_FILENAMES:-（无 —— 没装 gpu-driver-glibc，EEVEE 走 CPU）}"
+      echo "Vulkan ICD ${VK_ICD_FILENAMES:-（无 —— EEVEE 走 CPU）}"
     fi
     exit 0 ;;
   --setup)
     shift
     [ -f "$INSTALLER" ] || { echo "blender: 组件文件不全（缺 $INSTALLER）" >&2; exit 1; }
-    exec python3 "$INSTALLER" "$DATA/data/debroot" "$@" ;;
+    exec python3 -u "$INSTALLER" "$DATA/data/debroot" "$@" ;;
   --selftest)
     shift
     if ! engine_ok; then
       echo "blender: 还没装 Debian 用户空间，自检前先装 —— 约 267 MB 下载 / 1.1 GB 解开" >&2
-      python3 "$INSTALLER" "$DATA/data/debroot" || exit $?
+      python3 -u "$INSTALLER" "$DATA/data/debroot" || exit $?
+    elif ! mesa_ok; then
+      echo "blender: 补丁版 Mesa（GPU 用）还没装，先补上 —— 约 11 MB" >&2
+      python3 -u "$INSTALLER" "$DATA/data/debroot" || exit $?
     fi
     . "$LIBDIR/env.sh"
     export LD_LIBRARY_PATH="$LIB"
@@ -65,7 +71,7 @@ esac
 [ $# -gt 0 ] || usage 2
 if ! engine_ok; then
   echo "blender: 还没装 Debian 用户空间（Blender 本体）。" >&2
-  echo "  装：   blender --setup        # 从 Debian 官方仓库取，约 267 MB 下载 / 1.1 GB 解开" >&2
+  echo "  装：   blender --setup        # Debian 官方仓库约 267 MB + 补丁版 Mesa 约 11 MB，解开约 1.1 GB" >&2
   echo "  自检： blender --selftest     # 会先把上面这步做掉，再跑一次无头合成" >&2
   exit 1
 fi
