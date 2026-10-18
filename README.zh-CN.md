@@ -14,7 +14,7 @@ cccodroid 从 0.1.10 起读这个仓库。浏览器（Chromium）这类预置组
 |---|---|---|---|---|
 | `gh` | GitHub 命令行：PR、Issue、Release、Actions | 开发 | | MIT |
 | `godot` | Godot 4 引擎：无头运行、导出 Android APK | 开发 | | MIT |
-| `blender` | Blender 4.3 无头版：用 Python 脚本做合成、动效、出片，3D 渲染可走 GPU | 图像影音 | 首次使用从 Debian 下载本体（约 267 MB） | GPL-2.0-or-later |
+| `blender` | Blender 4.3 无头版：用 Python 脚本做合成、动效、出片，3D 渲染走 Adreno GPU（Vulkan 1.4） | 图像影音 | 首次使用下载本体：Debian 约 267 MB + GPU 用的补丁版 Mesa 约 11 MB（安装方法沿用 [blender-cli-android](https://github.com/greyoak111/blender-cli-android)） | GPL-2.0-or-later |
 | `lilypond` | LilyPond：用文本写乐谱，排版成出版级 PDF，也能出 PNG / SVG / MIDI | 图像影音 | | GPL-3.0-or-later |
 | `music` | 音乐生产工作流：MIDI → 音频（fluidsynth）、SuperCollider 合成、sox 后期、aubio 分析 | 图像影音 | 内置 GM 音色库（31 MB） | LGPL-2.1-or-later AND GPL-3.0-or-later AND GPL-2.0-only AND LicenseRef-GeneralUser-GS-2.0 |
 | `libreoffice` | LibreOffice 无头版：文档互转、出 PDF | 办公 | | MPL-2.0 AND LGPL-3.0 |
