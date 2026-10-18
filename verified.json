@@ -268,6 +268,15 @@
         "by": "greyoak111",
         "carriedFrom": "0.6.0-r2"
       }
+    },
+    "0.7.0-r3": {
+      "f77c89f1a0e7": {
+        "date": "2026-10-18",
+        "device": "nubia NX769J / Android 14",
+        "app": "cccodroid 0.2.10",
+        "checks": "installed from signed index; placed 87, shared 0; skill llama-cpp installed; selftest exit 0: ===== 总结 ===== 全部通过; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
     }
   },
   "ngspice": {
