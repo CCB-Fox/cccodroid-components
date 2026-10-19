@@ -15,8 +15,9 @@ description: 用 Tesseract 把图片和扫描版 PDF 里的文字识别成可编
 ocr（本组件的 shell 包装，$PREFIX/bin/ocr）
   ├─ 图片输入 → $PREFIX/bin/tesseract（本组件：Termux tesseract 5.5.3）
   │     └─ 语言包 → $PREFIX/share/cccodroid/components/ocr/tessdata/（本组件 fetch 的 tessdata_fast）
-  └─ PDF 输入 → $PREFIX/bin/pdftoppm（本组件 poppler 26.02.0）按 300 dpi 逐页转 PNG
-        → tesseract 逐页识别
+  └─ PDF 输入 → 逐页循环（一页一页来）：
+        $PREFIX/bin/pdftoppm（本组件 poppler 26.02.0）把当前页按 300 dpi 转 PNG
+        → tesseract 识别 → 立刻删掉这一页的 PNG
         └─ --pdf 输出 → 每页的可搜索 PDF → $PREFIX/bin/pdfunite 合并
 ```
 
@@ -56,6 +57,8 @@ ocr image.png --psm 6             # 整块文字；默认 psm 3
 - **纯中文优先 `--lang chi_sim`**：实测 `chi_sim+eng` 在短中文行上可能被英文模型带偏（例如把“中文识别测试”末尾识别成 `int`），单独用 `chi_sim` 就正常。
 - **中英混排用 `--lang chi_sim+eng`**：两行都有时这是必须的；如果某一行识别成乱码，把那一行裁出来单独用对应语言再识别。
 - PDF 一律按 **300 dpi** 转图；页数很多时慢一些，但比低 dpi 准确。
+- **临时空间按页算**：转一页 → 识别 → 立刻删图，几百页的 PDF 也不会在 `$TMPDIR` 堆几百 MB 图片。
+  用 `--pdf` 时每页的小 PDF 会保留到 `pdfunite` 合并，但一张 300 dpi 图片（通常几 MB）不会同时存在多张。
 - 输出文件已存在会被覆盖，不会询问。
 
 ## 语言包与 TESSDATA_PREFIX

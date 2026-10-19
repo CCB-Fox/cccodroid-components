@@ -124,7 +124,8 @@ if [ "$IS_PDF" = "0" ]; then
   exit 0
 fi
 
-# PDF：先数页，再逐页转图（按页号顺序，避免 page-10 排在 page-2 前面）
+# PDF：一页一页来：转图 → 识别 → 立刻删图。几百页也不会在 $TMPDIR 堆几百 MB 图片。
+# 按页号顺序处理，避免 page-10 排在 page-2 前面。
 [ -x "$PDFINFO" ] || die "找不到 pdfinfo（$PDFINFO）"
 [ -x "$PDFTOPPM" ] || die "找不到 pdftoppm（$PDFTOPPM）"
 PAGES=$("$PDFINFO" "$IN" 2>/dev/null | awk '/^Pages:/{print $2}')
@@ -133,22 +134,25 @@ case "$PAGES" in
 esac
 [ "$PAGES" -ge 1 ] || die "PDF 没有页面"
 
-i=1
-while [ "$i" -le "$PAGES" ]; do
-  "$PDFTOPPM" -r 300 -png -f "$i" -l "$i" "$IN" "$WORK/page" >/dev/null 2>&1 \
+one_page() {
+  i=$1
+  # -singlefile：输出名精确是 page-<i>.png。
+  # 不加时 pdftoppm 会按总页数补零（10 页以上变成 page-01.png），和后面拼的名字对不上。
+  "$PDFTOPPM" -r 300 -png -singlefile -f "$i" -l "$i" "$IN" "$WORK/page-$i" >/dev/null 2>&1 \
     || die "第 $i 页转图片失败（pdftoppm）"
   [ -f "$WORK/page-$i.png" ] || die "第 $i 页没有生成图片"
-  i=$((i + 1))
-done
+}
 
 if [ -n "$PDF_OUT" ]; then
   [ -x "$PDFUNITE" ] || die "找不到 pdfunite（$PDFUNITE）"
   i=1; set --
   while [ "$i" -le "$PAGES" ]; do
+    one_page "$i"
     run_tess "$WORK/page-$i.png" "$WORK/page-$i" -c tessedit_create_pdf=1 >/dev/null 2>&1 \
       || die "第 $i 页识别失败"
     [ -f "$WORK/page-$i.pdf" ] || die "第 $i 页没有生成 PDF"
     set -- "$@" "$WORK/page-$i.pdf"
+    rm -f "$WORK/page-$i.png" "$WORK/page-$i.txt"
     i=$((i + 1))
   done
   "$PDFUNITE" "$@" "$WORK/out.pdf" >/dev/null 2>&1 || die "合并每页 PDF 失败（pdfunite）"
@@ -157,9 +161,11 @@ if [ -n "$PDF_OUT" ]; then
 else
   i=1
   while [ "$i" -le "$PAGES" ]; do
+    one_page "$i"
     run_tess "$WORK/page-$i.png" "$WORK/page-$i" >/dev/null 2>&1 || die "第 $i 页识别失败"
     cat "$WORK/page-$i.txt"
     printf '\n'
+    rm -f "$WORK/page-$i.png" "$WORK/page-$i.txt"
     i=$((i + 1))
   done
 fi

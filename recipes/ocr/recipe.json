@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "ocr",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "OCR 文字识别（中英文）", "en": "OCR (Chinese and English)" },
   "desc": {
     "zh": "把图片和扫描版 PDF 里的文字识别成可编辑文本：支持简体中文、繁体中文和英文，也能输出带文字层的可搜索 PDF。PDF 会自动逐页转图再识别。",
