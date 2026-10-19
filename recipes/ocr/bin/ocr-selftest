@@ -1,0 +1,62 @@
+#!{{PREFIX}}/bin/sh
+# ocr 自检：语言包 → 英文图片 → 中文图片（有系统字体时）→ 扫描 PDF → 可搜索 PDF。
+# 不联网，只写 $TMPDIR。
+set -eu
+
+PREFIX_DIR="{{PREFIX}}"
+TESSDATA="$PREFIX_DIR/share/cccodroid/components/ocr/tessdata"
+TESSERACT="$PREFIX_DIR/bin/tesseract"
+OCR="$PREFIX_DIR/bin/ocr"
+
+fail() { echo "✗ $*" >&2; exit 1; }
+
+for c in "$OCR" "$TESSERACT" magick pdftotext; do
+  command -v "$c" >/dev/null 2>&1 || fail "找不到 $c"
+done
+[ -d "$TESSDATA" ] || fail "找不到语言包目录 $TESSDATA"
+
+D=$(mktemp -d "${TMPDIR:?TMPDIR 未设置}/ocr-selftest.XXXXXX") || fail "建临时目录失败"
+trap 'rm -rf "$D"' EXIT INT TERM
+
+# 1. 四个语言包都在
+LANGS=$("$TESSERACT" --tessdata-dir "$TESSDATA" --list-langs 2>/dev/null || true)
+for l in chi_sim chi_tra eng osd; do
+  echo "$LANGS" | grep -qx "$l" || fail "缺少语言包 $l"
+done
+
+# 2. 英文图片
+# termux-docker 里没有 fontconfig 可用的系统字体，必须显式指定底座自带的 DejaVu，
+# 否则 ImageMagick 连英文 label 都生成不了。
+DEJAVU="$PREFIX_DIR/share/fonts/TTF/DejaVuSans.ttf"
+[ -r "$DEJAVU" ] || fail "找不到底座字体 $DEJAVU"
+magick -background white -fill black -font "$DEJAVU" -pointsize 48 label:'OCR test 123' "$D/en.png" \
+  || fail "ImageMagick 生成英文图片失败"
+OUT=$("$OCR" "$D/en.png" --lang eng) || fail "英文图片识别失败"
+echo "$OUT" | grep -q 'OCR test 123' || fail "英文图片识别结果不对: $OUT"
+
+# 3. 中文图片（CI 的 termux-docker 没有系统字体，跳过；真机走这条）
+if [ -r /system/fonts/NotoSansCJK-Regular.ttc ]; then
+  magick -background white -fill black -font /system/fonts/NotoSansCJK-Regular.ttc \
+    -pointsize 48 label:'中文识别测试' "$D/zh.png" || fail "ImageMagick 生成中文图片失败"
+  OUT=$("$OCR" "$D/zh.png" --lang chi_sim) || fail "中文图片识别失败"
+  echo "$OUT" | grep -q '中文识别' || fail "中文图片识别结果不对: $OUT"
+  FONTS=CJK
+else
+  FONTS=ASCII
+fi
+
+# 4. 扫描版 PDF：图片转成没有文字层的 PDF，再走 ocr 的 PDF 路径
+magick "$D/en.png" "$D/scan.pdf" || fail "生成测试 PDF 失败"
+if [ -n "$(pdftotext "$D/scan.pdf" - 2>/dev/null | tr -d '[:space:]')" ]; then
+  fail "测试 PDF 自带文字层，不能用来测扫描件"
+fi
+OUT=$("$OCR" "$D/scan.pdf" --lang eng) || fail "PDF 输入识别失败"
+echo "$OUT" | grep -q 'OCR test 123' || fail "PDF 输入识别结果不对: $OUT"
+
+# 5. 可搜索 PDF：文件头 + 文字层
+"$OCR" "$D/scan.pdf" --lang eng --pdf "$D/searchable.pdf" >/dev/null || fail "生成可搜索 PDF 失败"
+head -c 5 "$D/searchable.pdf" | grep -q '%PDF-' || fail "输出的可搜索 PDF 没有 %PDF- 文件头"
+pdftotext "$D/searchable.pdf" - 2>/dev/null | tr -d '[:space:]' | grep -qi 'OCRtest123' \
+  || fail "可搜索 PDF 里没有文字层"
+
+echo "===== 总结 ===== langs=OK image=OK pdf=OK searchable=OK fonts=$FONTS"

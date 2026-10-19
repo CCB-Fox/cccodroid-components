@@ -1,0 +1,171 @@
+#!{{PREFIX}}/bin/sh
+# OCR 包装：图片直接识别；PDF 先逐页转 PNG 再识别；可选输出带文字层的可搜索 PDF。
+# 非交互；临时文件只写 $TMPDIR。
+set -eu
+
+PREFIX_DIR="{{PREFIX}}"
+TESSDATA="$PREFIX_DIR/share/cccodroid/components/ocr/tessdata"
+TESSERACT="$PREFIX_DIR/bin/tesseract"
+PDFTOPPM="$PREFIX_DIR/bin/pdftoppm"
+PDFINFO="$PREFIX_DIR/bin/pdfinfo"
+PDFUNITE="$PREFIX_DIR/bin/pdfunite"
+
+PROG=ocr
+
+die() { echo "$PROG: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+用法: ocr <图片|PDF> [--lang chi_sim+eng] [--pdf 输出.pdf] [--psm N]
+
+  --lang    语言，用 + 连接：chi_sim（简体）、chi_tra（繁体）、eng（英文），默认 chi_sim+eng
+  --pdf     输出带文字层的可搜索 PDF（多页 PDF 会逐页识别后用 pdfunite 合并）
+  --psm     传给 tesseract 的页面分割模式，常用 6（整块文字）或 11（稀疏文字）
+
+不给 --pdf 时把识别出的纯文本打到 stdout。
+PDF 输入一律先按 300 dpi 转成图片再识别。
+EOF
+}
+
+LANG_OPT="chi_sim+eng"
+PDF_OUT=""
+PSM=""
+IN=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lang)
+      [ $# -ge 2 ] || die "--lang 后面要跟语言，例如 chi_sim+eng"
+      LANG_OPT=$2; shift 2 ;;
+    --lang=*)
+      LANG_OPT=${1#*=}; shift ;;
+    --pdf)
+      [ $# -ge 2 ] || die "--pdf 后面要跟输出文件名"
+      PDF_OUT=$2; shift 2 ;;
+    --pdf=*)
+      PDF_OUT=${1#*=}; shift ;;
+    --psm)
+      [ $# -ge 2 ] || die "--psm 后面要跟数字"
+      PSM=$2; shift 2 ;;
+    --psm=*)
+      PSM=${1#*=}; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    --)
+      shift; break ;;
+    -*)
+      die "不认识的选项: $1（用 --help 看用法）" ;;
+    *)
+      if [ -z "$IN" ]; then IN=$1
+      else die "参数太多: $1"
+      fi
+      shift ;;
+  esac
+done
+
+[ -n "$IN" ] || { usage >&2; exit 2; }
+[ -f "$IN" ] || die "找不到输入文件: $IN"
+[ -x "$TESSERACT" ] || die "找不到 tesseract（$TESSERACT）；组件没装好就重装组件"
+[ -d "$TESSDATA" ] || die "找不到语言包目录: $TESSDATA"
+[ -n "${TMPDIR:-}" ] || die "TMPDIR 未设置，无法放临时文件"
+
+# 逐个检查语言包，缺了直接说缺哪个
+[ -n "$LANG_OPT" ] || die "--lang 不能为空"
+for l in $(echo "$LANG_OPT" | tr '+' ' '); do
+  if [ ! -f "$TESSDATA/$l.traineddata" ]; then
+    AVAIL=$(ls "$TESSDATA"/*.traineddata 2>/dev/null | sed 's|.*/||; s/\.traineddata$//' | tr '\n' ' ')
+    die "没有语言包 $l（可用：$AVAIL）"
+  fi
+done
+
+WORK=$(mktemp -d "${TMPDIR}/ocr.XXXXXX") || die "建临时目录失败"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# PDF 输出：去掉用户写的 .pdf 后缀，tesseract 会自己加
+PDF_BASE=""
+if [ -n "$PDF_OUT" ]; then
+  case "$PDF_OUT" in
+    *.[Pp][Dd][Ff]) PDF_BASE=${PDF_OUT%????} ;;
+    *) PDF_BASE=$PDF_OUT ;;
+  esac
+  [ -n "$PDF_BASE" ] || die "--pdf 的输出名不能是空的"
+  if [ "$PDF_BASE.pdf" = "$IN" ]; then
+    die "输出不能和输入是同一个文件: $PDF_OUT"
+  fi
+fi
+
+run_tess() {
+  img=$1; out=$2; shift 2
+  if [ -n "$PSM" ]; then
+    "$TESSERACT" "$img" "$out" --tessdata-dir "$TESSDATA" -l "$LANG_OPT" --psm "$PSM" "$@"
+  else
+    "$TESSERACT" "$img" "$out" --tessdata-dir "$TESSDATA" -l "$LANG_OPT" "$@"
+  fi
+}
+
+MIME=$(file -b --mime-type "$IN" 2>/dev/null || echo "")
+IS_PDF=0
+case "$MIME" in
+  application/pdf) IS_PDF=1 ;;
+esac
+case "$IN" in
+  *.[Pp][Dd][Ff]) IS_PDF=1 ;;
+esac
+
+if [ "$IS_PDF" = "0" ]; then
+  if [ -n "$PDF_OUT" ]; then
+    run_tess "$IN" "$WORK/out" -c tessedit_create_pdf=1 >/dev/null 2>&1 \
+      || die "tesseract 识别/生成 PDF 失败"
+    mv "$WORK/out.pdf" "$PDF_BASE.pdf" || die "写不进输出文件: $PDF_BASE.pdf"
+    echo "已生成可搜索 PDF: $PDF_BASE.pdf"
+  else
+    run_tess "$IN" stdout 2>/dev/null || die "tesseract 识别失败"
+  fi
+  exit 0
+fi
+
+# PDF：一页一页来：转图 → 识别 → 立刻删图。几百页也不会在 $TMPDIR 堆几百 MB 图片。
+# 按页号顺序处理，避免 page-10 排在 page-2 前面。
+[ -x "$PDFINFO" ] || die "找不到 pdfinfo（$PDFINFO）"
+[ -x "$PDFTOPPM" ] || die "找不到 pdftoppm（$PDFTOPPM）"
+PAGES=$("$PDFINFO" "$IN" 2>/dev/null | awk '/^Pages:/{print $2}')
+case "$PAGES" in
+  ''|*[!0-9]*) die "读不出 PDF 页数（pdfinfo 失败）" ;;
+esac
+[ "$PAGES" -ge 1 ] || die "PDF 没有页面"
+
+one_page() {
+  i=$1
+  # -singlefile：输出名精确是 page-<i>.png。
+  # 不加时 pdftoppm 会按总页数补零（10 页以上变成 page-01.png），和后面拼的名字对不上。
+  "$PDFTOPPM" -r 300 -png -singlefile -f "$i" -l "$i" "$IN" "$WORK/page-$i" >/dev/null 2>&1 \
+    || die "第 $i 页转图片失败（pdftoppm）"
+  [ -f "$WORK/page-$i.png" ] || die "第 $i 页没有生成图片"
+}
+
+if [ -n "$PDF_OUT" ]; then
+  [ -x "$PDFUNITE" ] || die "找不到 pdfunite（$PDFUNITE）"
+  i=1; set --
+  while [ "$i" -le "$PAGES" ]; do
+    one_page "$i"
+    run_tess "$WORK/page-$i.png" "$WORK/page-$i" -c tessedit_create_pdf=1 >/dev/null 2>&1 \
+      || die "第 $i 页识别失败"
+    [ -f "$WORK/page-$i.pdf" ] || die "第 $i 页没有生成 PDF"
+    set -- "$@" "$WORK/page-$i.pdf"
+    rm -f "$WORK/page-$i.png" "$WORK/page-$i.txt"
+    i=$((i + 1))
+  done
+  "$PDFUNITE" "$@" "$WORK/out.pdf" >/dev/null 2>&1 || die "合并每页 PDF 失败（pdfunite）"
+  mv "$WORK/out.pdf" "$PDF_BASE.pdf" || die "写不进输出文件: $PDF_BASE.pdf"
+  echo "已生成可搜索 PDF: $PDF_BASE.pdf（$PAGES 页）"
+else
+  i=1
+  while [ "$i" -le "$PAGES" ]; do
+    one_page "$i"
+    run_tess "$WORK/page-$i.png" "$WORK/page-$i" >/dev/null 2>&1 || die "第 $i 页识别失败"
+    cat "$WORK/page-$i.txt"
+    printf '\n'
+    rm -f "$WORK/page-$i.png" "$WORK/page-$i.txt"
+    i=$((i + 1))
+  done
+fi

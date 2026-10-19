@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "id": "ocr",
+  "kind": "termux",
+  "revision": 2,
+  "name": { "zh": "OCR 文字识别（中英文）", "en": "OCR (Chinese and English)" },
+  "desc": {
+    "zh": "把图片和扫描版 PDF 里的文字识别成可编辑文本：支持简体中文、繁体中文和英文，也能输出带文字层的可搜索 PDF。PDF 会自动逐页转图再识别。",
+    "en": "Turn text in images and scanned PDFs into editable text, with Simplified Chinese, Traditional Chinese and English models. Can also produce a searchable PDF with a text layer. Multi-page PDFs are rasterized page by page automatically."
+  },
+  "roots": ["tesseract", "poppler"],
+  "bin": ["ocr", "tesseract"],
+  "selftest": "ocr-selftest",
+  "fetch": {
+    "usr/share/cccodroid/components/ocr/tessdata/chi_sim.traineddata": {
+      "url": "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@87416418657359cb625c412a48b6e1d6d41c29bd/chi_sim.traineddata",
+      "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730",
+      "why": "tessdata_fast 简体中文模型（Apache-2.0）；Termux 的 tesseract 只带英文，官方仓库没有 chi_sim"
+    },
+    "usr/share/cccodroid/components/ocr/tessdata/chi_tra.traineddata": {
+      "url": "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@87416418657359cb625c412a48b6e1d6d41c29bd/chi_tra.traineddata",
+      "sha256": "529c5b5797d64b126065cd55f2bb4c7fd7b15790798091b1ff259941a829330b",
+      "why": "tessdata_fast 繁体中文模型（Apache-2.0）；Termux 官方仓库没有"
+    },
+    "usr/share/cccodroid/components/ocr/tessdata/eng.traineddata": {
+      "url": "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "why": "tessdata_fast 英文模型（Apache-2.0）；与包自带的 eng 分开放，语言包统一钉在同一个 tessdata_fast 快照"
+    },
+    "usr/share/cccodroid/components/ocr/tessdata/osd.traineddata": {
+      "url": "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@87416418657359cb625c412a48b6e1d6d41c29bd/osd.traineddata",
+      "sha256": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff",
+      "why": "tessdata_fast 方向/文字方向检测模型（Apache-2.0）；Termux 官方仓库没有 osd"
+    },
+    "usr/share/cccodroid/components/ocr/LICENSE.tessdata": {
+      "url": "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@87416418657359cb625c412a48b6e1d6d41c29bd/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "why": "tessdata_fast 语言包的 Apache-2.0 许可原文"
+    }
+  },
+  "files": {
+    "usr/bin/ocr": { "src": "bin/ocr", "mode": "755" },
+    "usr/bin/ocr-selftest": { "src": "bin/ocr-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "office",
+  "license": "Apache-2.0 AND GPL-2.0-or-later",
+  "homepage": "https://github.com/tesseract-ocr/tesseract",
+  "maintainers": ["greyoak111"],
+  "notes": "语言包来自 tesseract-ocr/tessdata_fast 的 main（2026-10-19 的提交 87416418657359cb625c412a48b6e1d6d41c29bd），走 jsDelivr 的固定 commit URL（本机 raw.githubusercontent.com 连不上），四个文件都钉了 sha256。选 fast 不选标准 tessdata 的理由：四个语言 fast 共 19 MB，标准版 115 MB（6 倍）；实测中文识别标准版略准（个别字更对、少掉行），但会在每个汉字之间插空格，fast 输出更干净；手机端优先体积和可读性。tesseract 包自带的 eng.traineddata（23 MB）仍在，但我们用 --tessdata-dir 指向本组件目录，保证四个语言来自同一快照。"
+}
