@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "diagrams",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "version": "1.2026.9",
   "name": { "zh": "图表与 UML（Graphviz + PlantUML）", "en": "Diagrams and UML (Graphviz + PlantUML)" },
   "desc": {
@@ -17,7 +17,7 @@
   },
   "needs": { "shizuku": false, "display": false, "gpu": false },
   "category": "dev",
-  "license": "EPL-1.0 AND GPL-3.0-or-later AND GPL-2.0-with-classpath-exception",
+  "license": "EPL-2.0 AND GPL-3.0-or-later AND GPL-2.0-with-classpath-exception",
   "homepage": "https://plantuml.com/",
   "maintainers": ["greyoak111"],
   "notes": "PlantUML 本体是 Java，底座有 openjdk-21；但底座的 openjdk-21 不含 AWT 的 libfontmanager.so，PlantUML 一启动就报 no fontmanager，必须再带 openjdk-21-x（约 12 MB 下载，补上 libfontmanager 和 freetype/X11 依赖），中文才能渲染。graphviz 在 devkit-2026.10.18 底座里已有，旧底座没有时会随组件带进来。PlantUML 的类图/时序图默认调用外部 dot（-v 可见 Starting Graphviz process）。JVM 每次冷启动约 2.4-2.7 秒、RSS 约 240 MB。selftest 不联网，只写 $TMPDIR；真机有 Noto CJK 时用中文标签，CI 无系统字体时退回 DejaVu + ASCII。"
