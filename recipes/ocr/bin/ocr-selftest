@@ -25,7 +25,11 @@ for l in chi_sim chi_tra eng osd; do
 done
 
 # 2. 英文图片
-magick -background white -fill black -pointsize 48 label:'OCR test 123' "$D/en.png" \
+# termux-docker 里没有 fontconfig 可用的系统字体，必须显式指定底座自带的 DejaVu，
+# 否则 ImageMagick 连英文 label 都生成不了。
+DEJAVU="$PREFIX_DIR/share/fonts/TTF/DejaVuSans.ttf"
+[ -r "$DEJAVU" ] || fail "找不到底座字体 $DEJAVU"
+magick -background white -fill black -font "$DEJAVU" -pointsize 48 label:'OCR test 123' "$D/en.png" \
   || fail "ImageMagick 生成英文图片失败"
 OUT=$("$OCR" "$D/en.png" --lang eng) || fail "英文图片识别失败"
 echo "$OUT" | grep -q 'OCR test 123' || fail "英文图片识别结果不对: $OUT"
