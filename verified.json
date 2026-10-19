@@ -497,5 +497,49 @@
         "by": "greyoak111"
       }
     }
+  },
+  "ocr": {
+    "5.5.3-r2": {
+      "f41102448255": {
+        "date": "2026-10-19",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.15",
+        "checks": "installed from signed index; placed 11, shared 1110; skill ocr installed; selftest exit 0: ===== 总结 ===== langs=OK image=OK pdf=OK searchable=OK fonts=CJK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "pandoc": {
+    "3.12.1-r1": {
+      "f41102448255": {
+        "date": "2026-10-19",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.15",
+        "checks": "installed from signed index; placed 5, shared 40; skill pandoc installed; selftest exit 0: ===== 总结 ===== docx=OK html=OK pdf=OK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "pdf-tools": {
+    "12.4.2-r2": {
+      "f41102448255": {
+        "date": "2026-10-19",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.15",
+        "checks": "installed from signed index; placed 6, shared 1356; skill pdf-tools installed; selftest exit 0: ===== 总结 ===== qpdf=OK text=OK png=OK mutool=OK shrink=OK fonts=CJK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
+  },
+  "sci-python": {
+    "2.5.4-r2": {
+      "f41102448255": {
+        "date": "2026-10-19",
+        "device": "LENOVO TB320FC / Android 15",
+        "app": "cccodroid 0.2.15",
+        "checks": "installed from signed index; placed 12, shared 4952; skill sci-python installed; selftest exit 0: ===== 总结 ===== numpy=OK scipy=OK matplotlib=OK pillow=OK pyarrow=OK fonts=CJK; removed cleanly; devkit base unchanged",
+        "by": "greyoak111"
+      }
+    }
   }
 }
