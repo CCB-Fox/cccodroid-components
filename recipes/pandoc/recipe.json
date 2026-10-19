@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "pandoc",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "Pandoc（文档格式互转）", "en": "Pandoc (document converter)" },
+  "desc": {
+    "zh": "在 Markdown、Word（docx）、HTML、EPUB、PDF 之间互转。支持目录、表格、代码块、图片和自定义 Word 样式模板；PDF 由底座的 typst 引擎生成，不需要 LaTeX。",
+    "en": "Convert between Markdown, Word (docx), HTML, EPUB and PDF, with tables of contents, tables, code blocks, images and custom Word reference styles. PDF output uses the bundled typst engine, so no LaTeX installation is needed."
+  },
+  "roots": ["pandoc"],
+  "bin": ["pandoc"],
+  "selftest": "pandoc-selftest",
+  "files": {
+    "usr/bin/pandoc-selftest": { "src": "bin/pandoc-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "office",
+  "license": "GPL-2.0-or-later",
+  "homepage": "https://pandoc.org",
+  "maintainers": ["greyoak111"]
+}
