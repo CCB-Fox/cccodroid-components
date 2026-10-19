@@ -1,0 +1,57 @@
+#!{{PREFIX}}/bin/sh
+# hugo 自检：在 $TMPDIR 新建一个站点，自己写一个最小 layout，构建后检查 HTML。
+# 不套主题、不联网，只写 $TMPDIR。
+set -eu
+
+HUGO="{{PREFIX}}/bin/hugo"
+fail() { echo "hugo-selftest: $*" >&2; exit 1; }
+
+[ -x "$HUGO" ] || fail "找不到 hugo（$HUGO）"
+
+VER=$("$HUGO" version 2>/dev/null | head -1)
+case "$VER" in
+  "hugo v0.168."*) ;;
+  *) fail "hugo version 输出不对：$VER" ;;
+esac
+echo "hugo OK $VER"
+
+[ -n "${TMPDIR:-}" ] || fail "TMPDIR 未设置，无法放临时文件"
+WORK=$(mktemp -d "$TMPDIR/hugo.XXXXXX") || fail "建临时目录失败"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+if [ -f /system/fonts/NotoSansCJK-Regular.ttc ]; then
+  FONTS=CJK
+  TITLE="最小站点"
+  BODY="这是不用主题的首页。Minimal site."
+else
+  FONTS=ASCII
+  TITLE="Minimal site"
+  BODY="A minimal Hugo site without a theme."
+fi
+
+cd "$WORK"
+"$HUGO" new site site >/dev/null 2>&1 || fail "hugo new site 失败"
+mkdir -p site/layouts site/content
+cat > site/hugo.toml <<'EOF'
+baseURL = "https://example.org/"
+title = "Selftest"
+EOF
+cat > site/layouts/index.html <<'EOF'
+<!doctype html>
+<html><head><title>{{ .Title }}</title></head>
+<body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>
+EOF
+cat > site/content/_index.md <<EOF
+---
+title: "$TITLE"
+---
+$BODY
+EOF
+
+( cd site && "$HUGO" --minify >"$WORK/build.log" 2>&1 ) || { tail -10 "$WORK/build.log" >&2; fail "hugo 构建失败"; }
+[ -s site/public/index.html ] || fail "没有生成 public/index.html"
+grep -Fq "$TITLE" site/public/index.html || fail "public/index.html 里没有标题"
+grep -Fq "$BODY" site/public/index.html || fail "public/index.html 里没有正文"
+
+echo "build OK public/index.html $(wc -c < site/public/index.html)B"
+echo "===== 总结 ===== hugo=OK build=OK fonts=$FONTS"

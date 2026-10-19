@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "hugo",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "Hugo 静态网站", "en": "Hugo static sites" },
+  "desc": {
+    "zh": "用 Hugo 从 Markdown 生成静态网站：新建站点、套主题、本地预览、构建压缩后的 public/ 成品。不需要数据库或后端。",
+    "en": "Build static websites from Markdown with Hugo: create a site, use a theme, preview locally, and generate a minified public/ directory. No database or backend required."
+  },
+  "roots": ["hugo"],
+  "bin": ["hugo"],
+  "selftest": "hugo-selftest",
+  "files": {
+    "usr/bin/hugo-selftest": { "src": "bin/hugo-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "dev",
+  "license": "Apache-2.0",
+  "homepage": "https://gohugo.io/",
+  "maintainers": ["greyoak111"],
+  "notes": "Hugo 0.168.0 extended（android/arm64），组件不带主题。主题用 git clone 到站点 themes/ 下（自测用 theNewDynamic/gohugo-theme-ananke v2.19.1，提交 18867db）。构建与 hugo server 都不联网；hugo server 绑 127.0.0.1 可在 App 内浏览器预览。发布不写进 requires：装了 cloudflare 组件时由用户自己 cf-login，再 wrangler pages deploy public（对外发布，先问用户）。selftest 在 $TMPDIR 用 hugo new site + 自己写的 layout 构建，不套主题、不联网；真机用中文内容，CI 无系统字体时用英文，最后一行按约定带 fonts=CJK/ASCII（Hugo 只输出 HTML，字体不影响构建）。"
+}
