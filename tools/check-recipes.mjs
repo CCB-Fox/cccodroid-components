@@ -1,7 +1,7 @@
 // 检查配方格式（PR 时 CI 跑；本地也可以跑）：node tools/check-recipes.mjs
 import fs from "node:fs";
 import path from "node:path";
-import { recipes } from "./lib.mjs";
+import { recipes, modelsOf } from "./lib.mjs";
 
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
   "fetch", "npm", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
@@ -38,6 +38,7 @@ for (const r of recipes()) {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(r.id || "")) err(n, "id 只能用小写字母、数字、-（≤40）");
   if (ids.has(r.id)) err(n, "id 重复"); ids.add(r.id);
   if (r.id === "index") err(n, "index 是保留名（索引的 Release 用它）");
+  for (const e of modelsOf(r).errors) err(n, e);
   if (!KINDS.has(r.kind || "termux")) err(n, `kind "${r.kind}" 还不支持（termux / glibc）`);
   if (r.version !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(r.version)) err(n, "version 只能用字母数字 . _ -（≤40）");
   if (!Number.isInteger(r.revision) || r.revision < 1) err(n, "revision 必须是 ≥1 的整数");

@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ROOT, REPO, APP_REPO, recipes, run, asset } from "./lib.mjs";
+import { ROOT, REPO, APP_REPO, recipes, run, asset, modelsOf } from "./lib.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf("--" + k); return i >= 0 ? args[i + 1] : undefined; };
@@ -71,6 +71,7 @@ for (const r of recipes()) {
     name: r.name, desc: r.desc, kind: r.kind || "termux", license: r.license, homepage: r.homepage || "",
     category: r.category || "other",
     maintainers: r.maintainers || [], needs: r.needs || {}, requires: r.requires || [],
+    ...((m) => (m.length ? { models: m } : {}))(modelsOf(r).models),
     builds: [...byBase.values()].map((m) => {
       let v = verified[r.id]?.[m.version]?.[m.base.gz.slice(0, 12)] || null;
       if (!v) {
