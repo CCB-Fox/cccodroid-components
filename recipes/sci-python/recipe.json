@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "sci-python",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "科学计算 Python（numpy / scipy / matplotlib）", "en": "Scientific Python (numpy / scipy / matplotlib)" },
   "desc": {
     "zh": "数据分析与画图：numpy 数组与线性代数、scipy 拟合与信号处理、matplotlib 无头出 PNG/SVG/PDF、Pillow 读写图片、pyarrow 读写 Parquet。用 Termux 预编译包，不需要在手机上现场编译。",
@@ -14,10 +14,21 @@
   "files": {
     "usr/bin/sci-python-selftest": { "src": "bin/sci-python-selftest", "mode": "755" }
   },
+  "pip": {
+    "why": "matplotlib 的纯 Python 依赖（Termux 仓库没有）。不打进来的话，它的 postinst 会在装组件时现场 pip install 去 PyPI 拉：版本不定、离线就装坏、卸载也删不掉",
+    "wheels": [
+      { "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30" },
+      { "url": "https://files.pythonhosted.org/packages/3d/61/4161946319472aaa9b897bd18ad5108a5b10f5ebaa503d921a001ac4fff9/fonttools-4.67.0-py3-none-any.whl", "sha256": "4304f03ed7f4ba000a8dcc941ad854bfa52e2f3b6112b8f099b6f431cf98e701" },
+      { "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl", "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c" },
+      { "url": "https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl", "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4" },
+      { "url": "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", "sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427" },
+      { "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274" }
+    ]
+  },
   "needs": { "shizuku": false, "display": false, "gpu": false },
   "category": "science",
   "license": "BSD-3-Clause AND PSF-2.0 AND MIT-CMU AND Apache-2.0",
   "homepage": "https://numpy.org",
   "maintainers": ["greyoak111"],
-  "notes": "matplotlib 的 Termux 包在 postinst 里执行 `pip3 install matplotlib`，首次安装会从 PyPI 拉 6 个纯 Python 依赖（cycler / fonttools / packaging / python-dateutil / pyparsing / six，实测 1.7 MB、约 14 秒）；装好后离线可用。selftest 用 python3 -I 跑，避免用户 site-packages 掩盖组件环境缺依赖。matplotlib 不会扫描 /system/fonts（findSystemFonts 返回 0），中文必须先用 font_manager.addfont 注册 NotoSansCJK-Regular.ttc，单独放 matplotlibrc 解决不了。pandas 不在 Termux 仓库，普通 pip install 在隔离构建 numpy 阶段失败；实测 `pip install meson-python cython versioneer` + `pip install --no-build-isolation pandas` 能编出 android_24_arm64_v8a wheel（pandas 3.0.6，约 5 分钟、装后 72 MB），但未打进组件，skill 里写明要先问用户；日常 CSV/Parquet 用底座 duckdb 或本组件 pyarrow。"
+  "notes": "matplotlib 的 6 个纯 Python 依赖由配方 pip 钉版本打进组件，安装不联网。selftest 用 python3 -I 跑，避免用户 site-packages 掩盖组件环境缺依赖。matplotlib 不会扫描 /system/fonts（findSystemFonts 返回 0），中文必须先用 font_manager.addfont 注册 NotoSansCJK-Regular.ttc，单独放 matplotlibrc 解决不了。pandas 不在 Termux 仓库，普通 pip install 在隔离构建 numpy 阶段失败；实测 `pip install meson-python cython versioneer` + `pip install --no-build-isolation pandas` 能编出 android_24_arm64_v8a wheel（pandas 3.0.6，约 5 分钟、装后 72 MB），但未打进组件，skill 里写明要先问用户；日常 CSV/Parquet 用底座 duckdb 或本组件 pyarrow。"
 }

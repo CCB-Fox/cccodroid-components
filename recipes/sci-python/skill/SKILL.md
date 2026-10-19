@@ -16,8 +16,9 @@ python3（底座 devkit 自带）
   ├─ numpy / scipy / matplotlib / Pillow / pyarrow          ← 本组件（Termux 预编译包）
   │    └─ libopenblas、libandroid-complex-math、libarrow-cpp 等   ← 本组件的依赖包（同一批装进来）
   ├─ matplotlib 的 6 个纯 Python 依赖
-  │    （cycler、fonttools、packaging、python-dateutil、pyparsing、six）
-  │    ← 安装组件时 matplotlib 包的 postinst 用 pip 从 PyPI 拉（约 1.7 MB，一次性的）
+  │    （配方 pip 钉死版本的 PyPI wheel：cycler 0.12.1、fonttools 4.67.0、
+  │     packaging 26.3、pyparsing 3.3.3、python-dateutil 2.9.0.post0、six 1.17.0）
+  │    ← 本组件（随包解进 site-packages；postinst 的 pip 看到依赖已满足，不再联网）
   └─ 中文字体 /system/fonts/NotoSansCJK-Regular.ttc   ← 系统提供
        └─ matplotlib 不会自动发现，必须自己 addfont
 ```
@@ -27,12 +28,8 @@ python3（底座 devkit 自带）
 | `python3` | 底座 devkit | `$PREFIX/bin/python3` | 所有包都用不了 |
 | numpy / scipy / matplotlib / Pillow / pyarrow | 本组件 | `$PREFIX/lib/python3.14/site-packages/` | 对应的 `import` 失败 |
 | OpenBLAS / libarrow-cpp 等共享库 | 本组件的 Termux 依赖包 | `$PREFIX/lib/` | numpy / scipy / pyarrow 导入时报找不到 `.so` |
-| matplotlib 的 6 个纯 Python 依赖 | 安装时 postinst 从 PyPI 下载 | `site-packages/` | `import matplotlib` 报 `No module named 'six'` 之类 |
+| matplotlib 的 6 个纯 Python 依赖 | 本组件（配方 `pip` 钉死版本的 PyPI wheel） | `site-packages/` | `import matplotlib` 报 `No module named 'six'` 之类 |
 | 中文字体 | 系统 `/system/fonts` | `/system/fonts/NotoSansCJK-Regular.ttc` | 中文变方框，**不报错**；用下面的 addfont 代码解决 |
-
-**关于首次安装联网**：Termux 的 matplotlib 包在 postinst 里执行 `pip3 install matplotlib`。如果设备上还没有
-那 6 个纯 Python 依赖，它会在**安装组件时**从 PyPI 下约 1.7 MB（本机实测 14 秒）。装好后整个组件离线可用。
-离线环境安装会失败，表现为 `import matplotlib` 缺包；遇到时如实告诉用户需要联网装一次。
 
 ## 先自检
 
@@ -128,6 +125,20 @@ im.thumbnail((1024, 1024))
 im.save("small.jpg", quality=85)
 ```
 
+字体工具（fonttools 4.67.0，随组件安装；`ttx --version` 实测 4.67.0）：
+
+```sh
+# 从 32 MB 的 Noto CJK TTC 里裁出只含所需字符的字体（--font-number=2 是简体中文 SC）
+pyftsubset /system/fonts/NotoSansCJK-Regular.ttc --font-number=2 \
+  --text="中文测试 ABC 123" --output-file=subset.otf
+
+# 字体 ↔ XML 互转，便于查看或修改表结构
+ttx -o font.ttx subset.otf
+ttx -o back.otf font.ttx
+```
+
+本机实测：32,355,424 B 的 TTC 裁出 5,224 B 的 OTF（11 个字符），`ttx` 转出的 XML 1,893 行、再转回字体字符表一致。
+
 - 脚本里先 `matplotlib.use("Agg")` 再 import pyplot；不要依赖环境变量。
 - 保存图片时路径写成绝对路径或确认当前目录；输出文件已存在会直接覆盖。
 
@@ -136,7 +147,7 @@ im.save("small.jpg", quality=85)
 | 现象 | 原因 / 处理 |
 |---|---|
 | 中文标题/坐标轴变成方框 | 没用 `font_manager.addfont("/system/fonts/NotoSansCJK-Regular.ttc")`，或没设 `font.sans-serif` |
-| `import matplotlib` 报 `No module named 'six'` | 安装时 pip 依赖没装上（多半是离线）；联网重装组件 |
+| `import matplotlib` 报 `No module named 'six'` | 组件的 pip 依赖没装上（组件没装全）；重装组件即可，不需要联网 |
 | `UserWarning: Glyph ... missing from font` | 同中文方框；注册字体并设置字体族 |
 | `ModuleNotFoundError: No module named 'numpy'` | 用错了解释器（比如别的 venv）；用 `which python3` 确认是 `$PREFIX/bin/python3` |
 | pandas 默认装不上 | 见上一节：加 `--no-build-isolation` 可装，约 5 分钟；不急就用 duckdb / pyarrow |
