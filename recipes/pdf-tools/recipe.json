@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "pdf-tools",
   "kind": "termux",
-  "revision": 1,
+  "revision": 2,
   "name": { "zh": "PDF 工具箱", "en": "PDF toolbox" },
   "desc": {
     "zh": "处理 PDF：合并、拆分、旋转、加密解密、压缩、提取文字、页面转 PNG/JPEG、查看页数与元数据、提取内嵌图片。包含 qpdf、poppler（pdftotext / pdftoppm / pdfinfo / pdfimages）和 mupdf 的 mutool。",
