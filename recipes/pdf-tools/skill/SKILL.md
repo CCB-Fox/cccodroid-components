@@ -44,20 +44,18 @@ qpdf --empty --pages a.pdf b.pdf c.pdf -- merged.pdf   # 合并（顺序就是�
 qpdf --empty --pages in.pdf 2 -- only-page-2.pdf       # 只取第 2 页（写成 1-3 就是范围）
 qpdf --split-pages=1 in.pdf part.pdf                   # 每页一个文件 → part-1.pdf、part-2.pdf …
 qpdf --rotate=+90:1 in.pdf rotated.pdf                 # 第 1 页顺时针 90°
-qpdf --encrypt user owner 256 -- in.pdf encrypted.pdf  # 用户密码 user，所有者密码 owner
-qpdf --password=user --decrypt encrypted.pdf out.pdf   # 解密
 ```
 
 - 合并 2 个和 3 个文件都实测过；页数分别是 2 和 3。
-- 加密后 `pdfinfo` 会显示 `Encrypted: yes`；不加密码读会失败，加 `-upw user` 才能读。
-- `--encrypt` 后面那串密码和权限要跟 `--` 隔开，少了 `--` qpdf 会把输入文件当成密码。
+- qpdf 也能加密 / 解密 PDF（本机验证过）。但**密码一律由用户自己在终端处理**：
+  Claude 不代跑带密码的命令，也不索要、不读取、不输出密码。遇到加密文件，请用户解密后
+  再给文件，或让用户自己在终端执行 qpdf 的解密命令（参数见 `qpdf --help`）。
 
 ## 提取文字
 
 ```sh
 pdftotext -layout in.pdf -            # 全部页，保留版式，输出到 stdout
 pdftotext -f 2 -l 2 -layout in.pdf -  # 只抽第 2 页
-pdftotext -upw user encrypted.pdf -   # 加密文件
 mutool draw -F txt -o out.txt in.pdf  # 备选引擎
 ```
 
@@ -106,7 +104,7 @@ pdf-shrink in.pdf out.pdf --quality printer    # 保留打印质量
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| `Command Line Error: Incorrect password` | 加密 PDF；`pdftotext` 加 `-upw <用户密码>`，或先用 `qpdf --password=… --decrypt` 解密 |
+| 打不开 / 提示需要密码 | 加密 PDF；请用户自己解密后再给文件，Claude 不索取、不读取、不输出密码 |
 | 抽出来是空白 | 扫描件没有文字层；用 `ocr` 组件 |
 | 中文/特殊字符乱码 | PDF 生成时没写 ToUnicode；pdftotext 和 mutool 都可能抽不出来，只能 OCR |
 | `pdf-shrink` 说找不到 ghostscript | 底座的 `gs` 不在了，重装/修复工具包，不要自己改组件 |

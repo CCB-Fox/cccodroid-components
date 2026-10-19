@@ -12,7 +12,12 @@ done
 D=$(mktemp -d "${TMPDIR:?TMPDIR 未设置}/pdf-selftest.XXXXXX") || fail "建临时目录失败"
 trap 'rm -rf "$D"' EXIT INT TERM
 
-cat > "$D/in.typ" <<'EOF'
+# 真机上有 /system/fonts（中文检查）；CI 的 termux-docker 没有系统字体，退回 ASCII 检查。
+# 两条路都走完整的拆/合/抽字/出图/压缩流程，只有核对的关键字不同。
+if [ -r /system/fonts/NotoSansCJK-Regular.ttc ]; then
+  CJK=CJK
+  KEY='苹果香蕉'
+  cat > "$D/in.typ" <<'EOF'
 #set page(paper: "a5", margin: 1cm)
 #set text(font: "Noto Sans CJK SC", size: 10pt)
 = 第一页 中文
@@ -25,6 +30,22 @@ cat > "$D/in.typ" <<'EOF'
 
 Second page, English text.
 EOF
+else
+  CJK=ASCII
+  KEY='PDF toolbox selftest'
+  cat > "$D/in.typ" <<'EOF'
+#set page(paper: "a5", margin: 1cm)
+= Page one
+
+PDF toolbox selftest, page one.
+
+#pagebreak()
+
+= Page two
+
+Second page, English text.
+EOF
+fi
 
 TYPST_FONT_PATHS=${TYPST_FONT_PATHS:-/system/fonts} typst compile "$D/in.typ" "$D/two.pdf" >/dev/null 2>&1 \
   || fail "typst 生成测试 PDF 失败"
@@ -36,11 +57,11 @@ qpdf --split-pages=1 "$D/two.pdf" "$D/part.pdf" || fail "qpdf 拆分失败"
 qpdf --empty --pages "$D/part-1.pdf" "$D/part-2.pdf" -- "$D/merged.pdf" || fail "qpdf 合并失败"
 [ "$(pdfinfo "$D/merged.pdf" | awk '/^Pages:/{print $2}')" = "2" ] || fail "合并后的 PDF 不是 2 页"
 
-pdftotext -layout "$D/merged.pdf" - 2>/dev/null | grep -q '苹果香蕉' \
-  || fail "pdftotext 没抽出中文（可能是字体或 ToUnicode 问题）"
+pdftotext -layout "$D/merged.pdf" - 2>/dev/null | grep -q "$KEY" \
+  || fail "pdftotext 没抽出预期的文字（可能是字体或 ToUnicode 问题）"
 
 mutool draw -F txt -o "$D/mutool.txt" "$D/merged.pdf" >/dev/null 2>&1 || fail "mutool 抽文字失败"
-grep -q '苹果香蕉' "$D/mutool.txt" || fail "mutool 没抽出中文"
+grep -q "$KEY" "$D/mutool.txt" || fail "mutool 没抽出预期的文字"
 
 pdftoppm -r 72 -png -f 1 -l 1 "$D/merged.pdf" "$D/page" || fail "pdftoppm 出图失败"
 [ -s "$D/page-1.png" ] || fail "pdftoppm 没有生成 PNG"
@@ -49,4 +70,4 @@ pdf-shrink "$D/merged.pdf" "$D/shrunk.pdf" --quality ebook >/dev/null 2>&1 || fa
 [ -s "$D/shrunk.pdf" ] || fail "pdf-shrink 没有生成输出"
 [ "$(pdfinfo "$D/shrunk.pdf" | awk '/^Pages:/{print $2}')" = "2" ] || fail "压缩后的 PDF 页数不对"
 
-echo "===== 总结 ===== qpdf=OK text=OK png=OK mutool=OK shrink=OK"
+echo "===== 总结 ===== qpdf=OK text=OK png=OK mutool=OK shrink=OK fonts=$CJK"
