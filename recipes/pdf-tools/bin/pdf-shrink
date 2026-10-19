@@ -1,0 +1,104 @@
+#!{{PREFIX}}/bin/sh
+# 用 ghostscript 压缩 PDF，把 -sDEVICE=pdfwrite -dPDFSETTINGS=... 那串参数收起来。
+# 非交互；临时文件只写 $TMPDIR。
+set -eu
+
+PROG=pdf-shrink
+
+die() { echo "$PROG: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+用法: pdf-shrink <输入.pdf> [输出.pdf] [--quality screen|ebook|printer]
+
+  --quality screen   最小体积（屏幕阅读，约 72 dpi）
+  --quality ebook    默认，适合手机/平板阅读（约 150 dpi）
+  --quality printer  保留打印质量（约 300 dpi）
+
+省略输出文件时写成 <输入名>-shrunk.pdf（和输入同目录）。
+EOF
+}
+
+QUALITY=ebook
+IN=
+OUT=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --quality)
+      [ $# -ge 2 ] || die "--quality 后面要跟 screen / ebook / printer"
+      QUALITY=$2; shift 2 ;;
+    --quality=*)
+      QUALITY=${1#*=}; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    --)
+      shift; break ;;
+    -*)
+      die "不认识的选项: $1（用 --help 看用法）" ;;
+    *)
+      if [ -z "$IN" ]; then IN=$1
+      elif [ -z "$OUT" ]; then OUT=$1
+      else die "参数太多: $1"
+      fi
+      shift ;;
+  esac
+done
+
+[ -n "$IN" ] || { usage >&2; exit 2; }
+[ -f "$IN" ] || die "找不到输入文件: $IN"
+command -v gs >/dev/null 2>&1 || die "找不到 ghostscript（gs）；本组件依赖底座自带的 ghostscript"
+
+case "$QUALITY" in
+  screen|ebook|printer) ;;
+  *) die "quality 只能是 screen / ebook / printer，收到: $QUALITY" ;;
+esac
+
+if [ -z "$OUT" ]; then
+  DIR=$(dirname "$IN")
+  BASE=$(basename "$IN")
+  case "$BASE" in
+    *.[Pp][Dd][Ff]) BASE=${BASE%????} ;;
+  esac
+  OUT="$DIR/$BASE-shrunk.pdf"
+fi
+
+# 不许原地覆盖输入
+if [ "$IN" = "$OUT" ] || { [ -e "$OUT" ] && [ "$IN" -ef "$OUT" ]; }; then
+  die "输出不能和输入是同一个文件: $OUT"
+fi
+
+[ -n "${TMPDIR:-}" ] || die "TMPDIR 未设置，无法放临时文件"
+
+TMP=$(mktemp "$TMPDIR/pdf-shrink.XXXXXX") || die "建临时文件失败"
+LOG=$(mktemp "$TMPDIR/pdf-shrink-log.XXXXXX") || { rm -f "$TMP"; die "建临时日志失败"; }
+trap 'rm -f "$TMP" "$LOG"' EXIT INT TERM
+
+if ! gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite \
+     -dPDFSETTINGS="/$QUALITY" -sOutputFile="$TMP" "$IN" >"$LOG" 2>&1; then
+  echo "$PROG: ghostscript 压缩失败。gs 的输出：" >&2
+  tail -n 20 "$LOG" >&2 || true
+  exit 1
+fi
+
+[ -s "$TMP" ] || die "ghostscript 跑完了但没有生成输出文件"
+
+BEFORE=$(wc -c < "$IN")
+AFTER=$(wc -c < "$TMP")
+
+human() {
+  awk -v b="$1" 'BEGIN {
+    if (b >= 1048576) printf "%.1f MB", b / 1048576;
+    else if (b >= 1024) printf "%.0f KB", b / 1024;
+    else printf "%d B", b;
+  }'
+}
+
+PCT=$(awk -v a="$BEFORE" -v b="$AFTER" 'BEGIN { if (a > 0) printf "%d", (b - a) * 100 / a; else printf "0" }')
+
+mv "$TMP" "$OUT" || die "写不进输出文件: $OUT"
+
+if [ "$AFTER" -lt "$BEFORE" ]; then
+  echo "$PROG: $IN $(human "$BEFORE") → $OUT $(human "$AFTER")（缩小 $((0 - PCT))%）"
+else
+  echo "$PROG: $IN $(human "$BEFORE") → $OUT $(human "$AFTER")（没有变小，增加 ${PCT}%；原文件可能已经压得很紧）"
+fi

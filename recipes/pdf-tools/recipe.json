@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "pdf-tools",
+  "kind": "termux",
+  "revision": 2,
+  "name": { "zh": "PDF 工具箱", "en": "PDF toolbox" },
+  "desc": {
+    "zh": "处理 PDF：合并、拆分、旋转、加密解密、压缩、提取文字、页面转 PNG/JPEG、查看页数与元数据、提取内嵌图片。包含 qpdf、poppler（pdftotext / pdftoppm / pdfinfo / pdfimages）和 mupdf 的 mutool。",
+    "en": "Work with PDF files: merge, split, rotate, encrypt/decrypt, shrink, extract text, render pages to PNG/JPEG, inspect page count and metadata, and pull out embedded images. Bundles qpdf, poppler (pdftotext / pdftoppm / pdfinfo / pdfimages) and mupdf's mutool."
+  },
+  "roots": ["qpdf", "poppler", "mupdf-tools"],
+  "bin": ["qpdf", "pdftotext", "pdftoppm", "pdfinfo", "pdfimages", "mutool", "pdf-shrink"],
+  "selftest": "pdf-selftest",
+  "files": {
+    "usr/bin/pdf-shrink": { "src": "bin/pdf-shrink", "mode": "755" },
+    "usr/bin/pdf-selftest": { "src": "bin/pdf-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "office",
+  "license": "Apache-2.0 AND GPL-2.0-or-later AND AGPL-3.0-or-later",
+  "homepage": "https://qpdf.sourceforge.net",
+  "maintainers": ["greyoak111"]
+}
