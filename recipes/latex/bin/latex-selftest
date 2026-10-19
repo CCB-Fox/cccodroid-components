@@ -1,0 +1,61 @@
+#!{{PREFIX}}/bin/sh
+# latex 自检：不联网。
+# Tectonic 的 TeX 资源包是首次编译时按需下载的，CI 里没有缓存也不允许联网，
+# 所以这里只检查二进制可运行、CLI 选项齐全；如果本机缓存已经是热的，
+# 再额外跑一次 --only-cached 的最小文档，验证离线编译。
+set -eu
+
+TECTONIC="{{PREFIX}}/bin/tectonic"
+fail() { echo "latex-selftest: $*" >&2; exit 1; }
+
+[ -x "$TECTONIC" ] || fail "找不到 tectonic（$TECTONIC）"
+
+VER=$("$TECTONIC" --version 2>/dev/null | head -1)
+case "$VER" in
+  "Tectonic 0.17."*) ;;
+  *) fail "tectonic --version 输出不对：$VER" ;;
+esac
+echo "tectonic OK $VER"
+
+"$TECTONIC" --help 2>&1 | grep -q -- '--only-cached' \
+  || fail "tectonic --help 里没有 --only-cached，二进制可能不完整"
+echo "CLI OK --only-cached"
+
+# 资源缓存位置：TECTONIC_CACHE_DIR > XDG_CACHE_HOME > $HOME/.cache
+if [ -n "${TECTONIC_CACHE_DIR:-}" ]; then
+  CACHE=$TECTONIC_CACHE_DIR
+elif [ -n "${XDG_CACHE_HOME:-}" ]; then
+  CACHE=$XDG_CACHE_HOME/tectonic
+elif [ -n "${HOME:-}" ]; then
+  CACHE=$HOME/.cache/tectonic
+else
+  CACHE=""
+fi
+
+if [ -f /system/fonts/NotoSansCJK-Regular.ttc ]; then FONTS=CJK; else FONTS=ASCII; fi
+
+OFFLINE=skip
+if [ -n "$CACHE" ] && [ -d "$CACHE/formats" ] && [ -d "$CACHE/bundles" ]; then
+  [ -n "${TMPDIR:-}" ] || fail "TMPDIR 未设置，无法放临时文件"
+  WORK=$(mktemp -d "$TMPDIR/latex.XXXXXX") || fail "建临时目录失败"
+  trap 'rm -rf "$WORK"' EXIT INT TERM
+  cat > "$WORK/hello.tex" <<'EOF'
+\documentclass{article}
+\begin{document}
+Offline check.
+\end{document}
+EOF
+  if TECTONIC_CACHE_DIR="$CACHE" "$TECTONIC" --only-cached "$WORK/hello.tex" \
+       >"$WORK/out.log" 2>&1 && [ -s "$WORK/hello.pdf" ]; then
+    OFFLINE=ok
+    echo "offline compile OK $(wc -c < "$WORK/hello.pdf")B"
+  else
+    OFFLINE=failed
+    echo "offline compile failed（缓存可能不完整；删掉后重新联网编译一次即可）" >&2
+    tail -5 "$WORK/out.log" >&2 || true
+  fi
+else
+  echo "cache empty：首次编译需要联网下载资源包（见 SKILL.md）"
+fi
+
+echo "===== 总结 ===== tectonic=OK offline=$OFFLINE fonts=$FONTS"

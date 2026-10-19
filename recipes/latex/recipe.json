@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "latex",
+  "kind": "termux",
+  "revision": 1,
+  "version": "0.17.0",
+  "name": { "zh": "LaTeX 编译（Tectonic）", "en": "LaTeX (Tectonic)" },
+  "desc": {
+    "zh": "用 Tectonic 把 .tex 编译成 PDF：自带 XeTeX 引擎，支持 ctex / xeCJK 中文和 beamer 幻灯片。首次编译会按需从官方资源站下载 TeX 资源包并缓存，之后可以离线使用。",
+    "en": "Compile .tex to PDF with Tectonic, an XeTeX engine with ctex/xeCJK Chinese support and beamer slides. The first compile downloads TeX resource files from the official bundle server and caches them; later compiles work offline."
+  },
+  "roots": ["tectonic"],
+  "bin": ["tectonic"],
+  "selftest": "latex-selftest",
+  "files": {
+    "usr/bin/latex-selftest": { "src": "bin/latex-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "office",
+  "license": "MIT",
+  "homepage": "https://tectonic-typesetting.github.io/",
+  "maintainers": ["greyoak111"],
+  "notes": "Tectonic 0.17.0 本体只有 3.9 MB，TeX 资源包在第一次编译时按需下载：最小英文 article 实测 42 MB / 166 秒（本机网络），之后热缓存 0.92 秒。缓存默认在 $HOME/.cache/tectonic，可用 TECTONIC_CACHE_DIR 覆盖（优先于 XDG_CACHE_HOME）；离线用 --only-cached，缓存为空时会失败。中文：ctex 默认 Fandol 字体可编译（再下约 18 MB），但系统字体 /system/fonts/NotoSansCJK-Regular.ttc 是 TTC，xdvipdfmx 报 sfnt: table not found，fontset=none + 系统字体这条路走不通。beamer 英文与 ctexbeamer 中文都实测通过。selftest 不联网：只跑 tectonic --version / --help，缓存已热时额外跑一次 --only-cached 小文档；真机有 CJK 字体时 fonts=CJK，CI 为 ASCII。"
+}
