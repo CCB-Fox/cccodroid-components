@@ -1,0 +1,90 @@
+#!{{PREFIX}}/bin/python3
+# sci-python 自检：numpy 矩阵、scipy 拟合、matplotlib 无头出图（有中文字体就写中文标题）、
+# Pillow 读图、pyarrow 写读 Parquet。不联网，只写 $TMPDIR。
+import os
+import sys
+import tempfile
+import shutil
+
+# 用隔离模式跑：不吃用户 site-packages，确保检查的是组件装出来的环境。
+if not sys.flags.isolated:
+    os.execv(sys.executable, [sys.executable, "-I", os.path.abspath(__file__)] + sys.argv[1:])
+
+
+def fail(msg):
+    print("✗ " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+try:
+    import numpy as np
+    import scipy
+    from scipy.optimize import curve_fit
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import font_manager as fm
+    import matplotlib.pyplot as plt
+    import PIL
+    from PIL import Image
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+except Exception as e:  # noqa: BLE001
+    fail("导入失败: %r" % (e,))
+
+print("numpy=%s scipy=%s matplotlib=%s pillow=%s pyarrow=%s" % (
+    np.__version__, scipy.__version__, matplotlib.__version__,
+    PIL.__version__, pa.__version__))
+
+D = tempfile.mkdtemp(prefix="sci-python-selftest.")
+try:
+    # numpy：矩阵乘法
+    a = np.arange(6).reshape(2, 3)
+    c = a @ np.ones((3, 2))
+    if c.tolist() != [[3.0, 3.0], [12.0, 12.0]]:
+        fail("numpy 矩阵乘法结果不对: %r" % (c.tolist(),))
+    print("numpy OK")
+
+    # scipy：最小二乘拟合 y = 2.5x + 1.3
+    x = np.linspace(0, 10, 50)
+    y = 2.5 * x + 1.3
+    popt, _ = curve_fit(lambda x, a, b: a * x + b, x, y)
+    if abs(popt[0] - 2.5) > 1e-6 or abs(popt[1] - 1.3) > 1e-6:
+        fail("scipy 拟合结果不对: %r" % (popt.tolist(),))
+    print("scipy OK", [round(float(v), 4) for v in popt])
+
+    # matplotlib：Agg 无头出图；真机有 Noto CJK 就写中文标题，CI 没有系统字体就退回英文
+    font = "/system/fonts/NotoSansCJK-Regular.ttc"
+    if os.path.exists(font):
+        fm.fontManager.addfont(font)
+        plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC"]
+        plt.rcParams["axes.unicode_minus"] = False
+        title = "中文标题：苹果香蕉"
+        fonts = "CJK"
+    else:
+        title = "Scientific Python selftest"
+        fonts = "ASCII"
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3], [2, 1, 3])
+    ax.set_title(title)
+    png = os.path.join(D, "plot.png")
+    fig.savefig(png)
+    plt.close(fig)
+
+    im = Image.open(png)
+    im.load()
+    if im.size[0] <= 0 or im.size[1] <= 0:
+        fail("Pillow 读出的 PNG 尺寸不对: %r" % (im.size,))
+    print("matplotlib OK title=%s" % title)
+    print("pillow OK %dx%d" % im.size)
+
+    # pyarrow：写再读 Parquet
+    pq_path = os.path.join(D, "table.parquet")
+    pq.write_table(pa.table({"x": [1, 2, 3], "y": ["a", "b", "c"]}), pq_path)
+    back = pq.read_table(pq_path)
+    if back.column("x").to_pylist() != [1, 2, 3]:
+        fail("pyarrow 读回的 Parquet 内容不对")
+    print("pyarrow OK %d bytes" % os.path.getsize(pq_path))
+finally:
+    shutil.rmtree(D, ignore_errors=True)
+
+print("===== 总结 ===== numpy=OK scipy=OK matplotlib=OK pillow=OK pyarrow=OK fonts=%s" % fonts)
