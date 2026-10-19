@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "sci-python",
+  "kind": "termux",
+  "revision": 1,
+  "name": { "zh": "科学计算 Python（numpy / scipy / matplotlib）", "en": "Scientific Python (numpy / scipy / matplotlib)" },
+  "desc": {
+    "zh": "数据分析与画图：numpy 数组与线性代数、scipy 拟合与信号处理、matplotlib 无头出 PNG/SVG/PDF、Pillow 读写图片、pyarrow 读写 Parquet。用 Termux 预编译包，不需要在手机上现场编译。",
+    "en": "Data analysis and plotting: numpy arrays and linear algebra, scipy fitting and signal processing, headless matplotlib output to PNG/SVG/PDF, Pillow image I/O, and pyarrow for Parquet files. Uses prebuilt Termux packages, so nothing is compiled on the phone."
+  },
+  "roots": ["python-numpy", "python-scipy", "matplotlib", "python-pillow", "python-pyarrow"],
+  "bin": ["python3"],
+  "selftest": "sci-python-selftest",
+  "files": {
+    "usr/bin/sci-python-selftest": { "src": "bin/sci-python-selftest", "mode": "755" }
+  },
+  "needs": { "shizuku": false, "display": false, "gpu": false },
+  "category": "science",
+  "license": "BSD-3-Clause AND PSF-2.0 AND MIT-CMU AND Apache-2.0",
+  "homepage": "https://numpy.org",
+  "maintainers": ["greyoak111"],
+  "notes": "matplotlib 的 Termux 包在 postinst 里执行 `pip3 install matplotlib`，首次安装会从 PyPI 拉 6 个纯 Python 依赖（cycler / fonttools / packaging / python-dateutil / pyparsing / six，实测 1.7 MB、约 14 秒）；装好后离线可用。selftest 用 python3 -I 跑，避免用户 site-packages 掩盖组件环境缺依赖。matplotlib 不会扫描 /system/fonts（findSystemFonts 返回 0），中文必须先用 font_manager.addfont 注册 NotoSansCJK-Regular.ttc，单独放 matplotlibrc 解决不了。pandas 不在 Termux 仓库，普通 pip install 在隔离构建 numpy 阶段失败；实测 `pip install meson-python cython versioneer` + `pip install --no-build-isolation pandas` 能编出 android_24_arm64_v8a wheel（pandas 3.0.6，约 5 分钟、装后 72 MB），但未打进组件，skill 里写明要先问用户；日常 CSV/Parquet 用底座 duckdb 或本组件 pyarrow。"
+}
