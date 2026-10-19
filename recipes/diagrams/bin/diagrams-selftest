@@ -1,0 +1,83 @@
+#!{{PREFIX}}/bin/sh
+# diagrams 自检：Graphviz 与 PlantUML 各生成一张 SVG，核对里面的节点文字。
+# 不联网，只写 $TMPDIR。真机有 Noto CJK 时用中文，CI 无系统字体时用 DejaVu + ASCII。
+set -eu
+
+PREFIX_DIR="{{PREFIX}}"
+DOT="$PREFIX_DIR/bin/dot"
+PLANTUML="$PREFIX_DIR/bin/plantuml"
+
+fail() { echo "diagrams-selftest: $*" >&2; exit 1; }
+
+[ -x "$DOT" ] || fail "找不到 dot（$DOT）"
+[ -x "$PLANTUML" ] || fail "找不到 plantuml（$PLANTUML）；组件没装全就重装组件"
+[ -n "${TMPDIR:-}" ] || fail "TMPDIR 未设置，无法放临时文件"
+
+WORK=$(mktemp -d "$TMPDIR/diagrams.XXXXXX") || fail "建临时目录失败"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+FONT=/system/fonts/NotoSansCJK-Regular.ttc
+if [ -f "$FONT" ]; then
+  FONTS=CJK
+  FONT_ATTR=', fontname="Noto Sans CJK SC"'
+  DOT_LABEL="中文节点"
+  UML_TITLE="中文标题：登录流程"
+  UML_TEXT="你好，世界"
+else
+  FONTS=ASCII
+  FONT_ATTR=', fontname="DejaVu Sans"'
+  DOT_LABEL="Graphviz node"
+  UML_TITLE="Sequence diagram"
+  UML_TEXT="Hello world"
+fi
+
+# ── Graphviz：dot → SVG，再出一次 PNG（只核对非空）──
+cat > "$WORK/g.dot" <<EOF
+digraph G {
+  rankdir=LR;
+  node [shape=box, fontsize=16$FONT_ATTR];
+  a [label="$DOT_LABEL"];
+  b [label="end"];
+  a -> b;
+}
+EOF
+
+"$DOT" -Tsvg "$WORK/g.dot" -o "$WORK/g.svg" || fail "dot 生成 SVG 失败"
+[ -s "$WORK/g.svg" ] || fail "dot 没有生成 SVG"
+grep -q "$DOT_LABEL" "$WORK/g.svg" || fail "dot 的 SVG 里没有节点文字「$DOT_LABEL」"
+echo "graphviz OK svg=$(wc -c < "$WORK/g.svg")B"
+
+"$DOT" -Tpng "$WORK/g.dot" -o "$WORK/g.png" || fail "dot 生成 PNG 失败"
+[ -s "$WORK/g.png" ] || fail "dot 没有生成 PNG"
+echo "graphviz PNG OK"
+
+# ── PlantUML：.puml → SVG，核对标题和消息文字 ──
+if [ "$FONTS" = CJK ]; then
+  cat > "$WORK/u.puml" <<EOF
+@startuml
+title $UML_TITLE
+actor 用户 as U
+participant 系统 as S
+U -> S: $UML_TEXT
+S --> U: 收到
+@enduml
+EOF
+else
+  cat > "$WORK/u.puml" <<EOF
+@startuml
+title $UML_TITLE
+actor User as U
+participant System as S
+U -> S: $UML_TEXT
+S --> U: received
+@enduml
+EOF
+fi
+
+"$PLANTUML" -tsvg "$WORK/u.puml" >/dev/null 2>&1 || fail "plantuml 生成 SVG 失败（JVM 或字体问题）"
+[ -s "$WORK/u.svg" ] || fail "plantuml 没有生成 SVG"
+grep -q "$UML_TITLE" "$WORK/u.svg" || fail "plantuml 的 SVG 里没有标题「$UML_TITLE」"
+grep -q "$UML_TEXT" "$WORK/u.svg" || fail "plantuml 的 SVG 里没有消息文字「$UML_TEXT」"
+echo "plantuml OK svg=$(wc -c < "$WORK/u.svg")B"
+
+echo "===== 总结 ===== graphviz=OK plantuml=OK fonts=$FONTS"
