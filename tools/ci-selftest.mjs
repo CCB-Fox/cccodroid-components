@@ -68,7 +68,8 @@ if (todo.length) {
     const chain = [...t.deps, { id: t.id, tar: t.tar }];
     for (const c of chain) sudo("tar", "xf", c.tar, "-C", `${LIVE}/files`);
     // first-run：依赖在前；selftest 限时 5 分钟，输出落到 /st/<id>.log
-    const firstRuns = chain.map((c) => `f=$PREFIX/libexec/devkit/components/${c.id}/first-run.sh; [ -f "$f" ] && { sh "$f" || echo "（${c.id} 的 first-run rc=$?）"; }`).join("\n");
+    // PIP_NO_INDEX=1：包的 postinst 现场 pip install 时不许去 PyPI —— 缺的纯 Python 依赖必须写进配方的 pip
+    const firstRuns = chain.map((c) => `f=$PREFIX/libexec/devkit/components/${c.id}/first-run.sh; [ -f "$f" ] && { PIP_NO_INDEX=1 sh "$f" || echo "（${c.id} 的 first-run rc=$?）"; }`).join("\n");
     fs.writeFileSync(path.join(ST, "cmd"), t.selftest + "\n");
     const r = inContainer(`${firstRuns} >/st/${t.id}.first-run.log 2>&1
 cd "$HOME"; timeout 300 $PREFIX/bin/bash /st/cmd >/st/${t.id}.log 2>&1; echo "rc=$?"`, 900);

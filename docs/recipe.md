@@ -95,6 +95,32 @@ CI 在 `dir` 下跑 `npm ci --os=android --cpu=arm64 --ignore-scripts --omit=dev
 - 装出来的包声明了 `os` / `cpu` 的，必须包含 android / arm64，否则构建失败。
 - 生成 lock：在任意机器上 `npm install --package-lock-only --os=android --cpu=arm64`，提交前核对 diff。
 
+## `pip`：Termux 仓库没有的纯 Python 依赖
+
+有的 Termux 包在 postinst 里现场 `pip install`（例：matplotlib 会去 PyPI 拉 cycler / fonttools / packaging /
+pyparsing / python-dateutil / six）。不处理的话：装组件时要联网、版本不定、离线就装坏，拉下来的文件也不进组件记录，
+卸载删不掉。把这些依赖钉进配方：
+
+```jsonc
+"pip": {
+  "why": "matplotlib 的纯 Python 依赖（Termux 仓库没有）",
+  "wheels": [
+    { "url": "https://files.pythonhosted.org/packages/…/six-1.17.0-py2.py3-none-any.whl", "sha256": "…" }
+  ]
+}
+```
+
+devkit 下载、核对 sha256，照 pip 的布局解进底座 python 的 site-packages（带 dist-info，INSTALLER 记成
+`cccodroid-devkit`），`console_scripts` 生成入口脚本，`.data/` 的 scripts / data 放进 `bin/` 和 `$PREFIX`。
+postinst 里的 pip 看到依赖已满足就不再联网。
+
+要求（`tools/check-recipes.mjs` 会查）：
+
+- 只收 `files.pythonhosted.org` 上的 `*-py3-none-any.whl` / `*-py2.py3-none-any.whl`（纯 Python）。带 C 扩展的包走 Termux 仓库，那里没有就算做不了。
+- 每个 wheel 写 PyPI 页面上的 SHA256；同一个包只写一次。
+- 怎么知道要带哪些：看包 METADATA 的 `Requires-Dist`，减掉 Termux 包已经提供的；或者在 cccodroid 终端里把组件装上、看 postinst 的 pip 输出了哪些 `Downloading`。
+- **CI 自检跑首次运行时设了 `PIP_NO_INDEX=1`**：少带一个，postinst 的 pip 就装不上、selftest 的 import 失败。审计报告里 postinst 有 pip、配方又没写 `pip` 的，会单独提醒。
+
 ## skill/SKILL.md
 
 ```markdown

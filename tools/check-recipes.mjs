@@ -4,7 +4,7 @@ import path from "node:path";
 import { recipes, modelsOf } from "./lib.mjs";
 
 const KNOWN = new Set(["schema", "id", "kind", "revision", "version", "name", "desc", "repos", "roots", "exclude", "files",
-  "fetch", "npm", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
+  "fetch", "npm", "pip", "requires", "bin", "selftest", "needs", "license", "homepage", "maintainers", "notes", "category"]);
 // 分类（App 扩展页的分类索引条按它分）：只认这几个，界面上有对应的译名
 const CATEGORIES = new Set(["dev", "office", "media", "science", "eda", "cad", "ai", "gpu", "net", "other"]);
 const KINDS = new Set(["termux", "glibc"]);
@@ -90,6 +90,23 @@ for (const r of recipes()) {
           if (!/^https:\/\/registry\.npmjs\.org\//.test(p.resolved || "")) err(n, `${k} 不是从 registry.npmjs.org 取的: ${p.resolved || "(没有 resolved)"}`);
           if (!/^sha512-/.test(p.integrity || "")) err(n, `${k} 缺 sha512 完整性哈希`);
         }
+      }
+    }
+  }
+  // pip：Termux 仓库没有的纯 Python 依赖（典型：matplotlib 的 postinst 会现场 pip 拉 cycler / six…）。
+  // 只收 PyPI 官方文件服务器上的 *-none-any.whl（纯 Python，源码可读），钉 sha256；devkit 照 pip 的布局解进 site-packages
+  if (r.pip !== undefined) {
+    const m = r.pip;
+    if (!m || typeof m !== "object" || !Array.isArray(m.wheels) || !m.wheels.length) err(n, "pip 要写成 { why, wheels: [{ url, sha256 }] }");
+    else {
+      for (const k of Object.keys(m)) if (!["why", "wheels"].includes(k)) err(n, "pip 里不认识的键: " + k);
+      if (!m.why) err(n, "pip 要写 why：为什么要带这些包");
+      const seen = new Set();
+      for (const w of m.wheels) {
+        if (!/^https:\/\/files\.pythonhosted\.org\/packages\/[0-9a-f/]+\/[A-Za-z0-9_.]+-[A-Za-z0-9_.+!]+-(?:py3|py2\.py3)-none-any\.whl$/.test(w.url || "")) err(n, `pip 的 wheel 只能是 files.pythonhosted.org 上的纯 Python 包（*-py3-none-any.whl）: ${w.url}`);
+        if (!/^[0-9a-f]{64}$/.test(w.sha256 || "")) err(n, `pip 的 sha256 要写全（PyPI 页面上的 SHA256）: ${w.url}`);
+        const d = (w.url || "").split("/").pop().split("-")[0].toLowerCase().replace(/[-_.]+/g, "-");
+        if (seen.has(d)) err(n, "pip 里同一个包写了两次: " + d); seen.add(d);
       }
     }
   }

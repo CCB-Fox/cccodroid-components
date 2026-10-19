@@ -132,13 +132,15 @@ function build(id) {
   } catch (e) { built.set(id, { error: ((e.stdout || "") + (e.stderr || "")).trim().split("\n").slice(-8).join("\n") }); return built.get(id); }
   const meta = JSON.parse(fs.readFileSync(path.join(out, `component-${id}.json`), "utf8"));
   const tar = path.join(out, meta.tar.file);
-  const names = new Set(), entries = [];
+  const names = new Set(), entries = [], pipPost = [];
   for (const e of readTar(tar)) {
     if (e.type === "5") continue;
     names.add(e.name);
+    // 包的 postinst 里现场 pip install 的（如 matplotlib）：装组件时会去 PyPI 拉依赖
+    if (e.name.startsWith(`usr/libexec/devkit/components/${id}/postinst/`) && /\bpip3?"?\s+install\b/.test(e.body().toString())) pipPost.push(path.posix.basename(e.name));
     entries.push({ name: e.name, type: e.type, mode: e.mode, size: e.size, link: e.link });
   }
-  const res = { meta, tar, names, entries, log, drift: (/⚠ 底座与仓库版本不同[^\n]*/.exec(log) || [""])[0] };
+  const res = { meta, tar, names, entries, pipPost, log, drift: (/⚠ 底座与仓库版本不同[^\n]*/.exec(log) || [""])[0] };
   built.set(id, res);
   return res;
 }
@@ -300,6 +302,8 @@ for (const id of ids) {
   if ((r.repos || []).length) bump(1, `🟡 用了额外仓库：${r.repos.join("、")}`);
   const post = b.entries.filter((e) => e.name.startsWith(`usr/libexec/devkit/components/${id}/postinst/`)).map((e) => path.posix.basename(e.name));
   if (post.length) bump(1, `🟡 装完要跑包的 postinst：${post.join("、")}`);
+  if ((r.pip?.wheels || []).length) bump(1, `🟡 带了 PyPI 的纯 Python 包 ${r.pip.wheels.length} 个：${r.pip.wheels.map((w) => decodeURIComponent(w.url.split("/").pop()).split("-").slice(0, 2).join(" ")).join("、")}（哈希打包时已核对）`);
+  if (b.pipPost.length) (r.pip ? oks : warns).push(`postinst 里会 pip install：${b.pipPost.join("、")}${r.pip ? "（配方的 pip 已带依赖，CI 自检用 PIP_NO_INDEX=1 跑首次运行，缺了会失败）" : " —— 装组件时会去 PyPI 现场拉依赖（版本不定、离线装坏、卸载删不掉）；把缺的纯 Python 依赖写进配方的 pip"}`);
 
   // 体积、包、对比
   const m = b.meta, pk = m.packages;
