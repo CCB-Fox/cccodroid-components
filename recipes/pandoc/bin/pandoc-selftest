@@ -1,0 +1,43 @@
+#!{{PREFIX}}/bin/sh
+# pandoc 组件自检：不联网、只写 $TMPDIR、几秒内结束。
+set -eu
+
+fail() { echo "✗ $*" >&2; exit 1; }
+
+command -v pandoc >/dev/null 2>&1 || fail "找不到 pandoc"
+command -v unzip  >/dev/null 2>&1 || fail "找不到 unzip"
+
+D=$(mktemp -d "${TMPDIR:?TMPDIR 未设置}/pandoc-selftest.XXXXXX") || fail "建临时目录失败"
+trap 'rm -rf "$D"' EXIT INT TERM
+
+cat > "$D/in.md" <<'EOF'
+# 中文标题
+
+这是一段中英混排文字：Pandoc 把 Markdown 转成 Word、HTML、EPUB 和 PDF。
+
+| 名称 | 数量 |
+|------|-----:|
+| 苹果 | 3 |
+| Banana | 12 |
+
+```python
+print("你好，cccodroid")
+```
+EOF
+
+pandoc "$D/in.md" -o "$D/out.docx" 2>/dev/null || fail "md → docx 转换失败"
+unzip -t "$D/out.docx" >/dev/null 2>&1 || fail "docx 不是合法 zip"
+unzip -l "$D/out.docx" 2>/dev/null | grep -q 'word/document.xml' || fail "docx 里没有 word/document.xml"
+
+pandoc "$D/in.md" -o "$D/out.html" --standalone 2>/dev/null || fail "md → html 转换失败"
+grep -q '中英混排' "$D/out.html" || fail "html 里没有那段中文"
+
+PDF=SKIP
+if command -v typst >/dev/null 2>&1; then
+  pandoc "$D/in.md" -o "$D/out.pdf" --pdf-engine=typst -V mainfont="Noto Sans CJK SC" 2>/dev/null \
+    || fail "md → pdf（typst 引擎）失败"
+  head -c 5 "$D/out.pdf" | grep -q '%PDF-' || fail "输出的 PDF 没有 %PDF- 文件头"
+  PDF=OK
+fi
+
+echo "===== 总结 ===== docx=OK html=OK pdf=$PDF"
