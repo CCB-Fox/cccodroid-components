@@ -151,6 +151,17 @@
       }
     }
   },
+  "gpu-driver-mali": {
+    "1.0.0-r1": {
+      "f41102448255": {
+        "date": "2026-10-20",
+        "device": "vivo V2502A / Android 16",
+        "app": "cccodroid 0.3.2",
+        "checks": "installed from signed index; placed 7, shared 0; skill gpu-driver-mali installed; selftest exit 0: ===== 总结 ===== Mali=OK Vulkan=1.3.305 GL=Mali-G1-Ultra MC12 render=PASS; removed cleanly; devkit base unchanged",
+        "by": "CCB-Fox"
+      }
+    }
+  },
   "gnucap": {
     "20210107-4-r1": {
       "f77c89f1a0e7": {
