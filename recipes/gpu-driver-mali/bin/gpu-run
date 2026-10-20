@@ -1,0 +1,27 @@
+#!{{PREFIX}}/bin/sh
+# gpu-run — 用设备自带的厂商 Mali Vulkan 驱动运行程序（cccodroid gpu-driver-mali）
+#
+# 原理：Termux 程序默认链接 $PREFIX 里的 Khronos loader，它打不开 /vendor 下的
+# 厂商 ICD。这里预加载 Android 的系统 loader（同 SONAME），让程序的 libvulkan
+# 解析到它；系统 loader 经 sphal namespace 加载 /vendor/lib64/hw/vulkan.mali.so。
+#
+# 用法：gpu-run <程序> [参数...]
+set -u
+
+SYS_VK=/system/lib64/libvulkan.so
+
+if [ "$#" -eq 0 ]; then
+  echo "用法: gpu-run <程序> [参数...]" >&2
+  exit 2
+fi
+if [ ! -r "$SYS_VK" ]; then
+  echo "gpu-run: 读不到 $SYS_VK —— 这台设备没有可用的系统 Vulkan loader" >&2
+  exit 127
+fi
+
+# 已经预加载过就不要重复加
+case ":${LD_PRELOAD:-}:" in
+  *":$SYS_VK:"*) exec "$@" ;;
+esac
+
+LD_PRELOAD="$SYS_VK${LD_PRELOAD:+:$LD_PRELOAD}" exec "$@"
