@@ -53,6 +53,15 @@ Read the [authoring rules](.claude/skills/component-authoring/SKILL.md), then [C
 
 If an AI assistant writes the component for you, [AGENTS.md](AGENTS.md) at the repository root is written for it.
 
+## Thanks
+
+Thank you, in order of contribution:
+
+- **[CCB-Fox](https://github.com/CCB-Fox)**: contributed [`gpu-driver-mali`](recipes/gpu-driver-mali/) (#46), the first external component. Worked out on a Dimensity 9400 how to use the vendor Mali driver through the system Vulkan loader without root, which is why `needs.gpu: "mali"` exists.
+- **[Cosmosophius](https://github.com/Cosmosophius)**: a thorough Dimensity 9300 (Mali-G720) report (#47) that independently confirmed the same approach and measured compute performance, extension support and the dead ends.
+
+GitHub's contributor list only counts commits. Reports and device testing are contributions too, and they're recorded here.
+
 ## License
 
 Recipes, scripts and documentation in this repository are Apache-2.0. Packaged software keeps its upstream license, recorded in each recipe.

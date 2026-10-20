@@ -53,6 +53,15 @@ cccodroid 从 0.1.10 起读这个仓库。浏览器（Chromium）这类预置组
 
 用 AI 助手写组件的话，仓库根目录的 [AGENTS.md](AGENTS.md) 就是写给它看的。
 
+## 致谢
+
+谢谢这些朋友（按时间先后）：
+
+- **[CCB-Fox](https://github.com/CCB-Fox)**：投稿 [`gpu-driver-mali`](recipes/gpu-driver-mali/)（#46），第一个外部组件。在天玑 9400 上实测出不用 root、借系统 Vulkan 加载器用上厂商 Mali 驱动的办法，组件的 `needs.gpu: "mali"` 也因此而来。
+- **[Cosmosophius](https://github.com/Cosmosophius)**：天玑 9300（Mali-G720）的完整实测报告（#47），独立验证了同一条路，并测出了计算性能、扩展支持和走不通的方向。
+
+GitHub 的「贡献者」列表只统计代码提交。报告问题、测试机型同样是贡献，都会记在这里。
+
 ## 许可证
 
 本仓库里的配方、脚本和文档采用 Apache-2.0。打包的软件各自保留上游许可证，记录在各配方里。
