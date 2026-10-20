@@ -1,0 +1,19 @@
+#!{{PREFIX}}/bin/sh
+# mali-info — 自检 / 查看当前 GPU 路径（cccodroid gpu-driver-mali）
+#
+# 退出码：0 = 系统 loader 枚举到 Mali GPU，且离屏渲染读回像素正确；
+#         非 0 = 不是 Mali 设备，或驱动/渲染不可用。
+set +e
+
+self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+PREFIX="${CCODROID_PREFIX:-${PREFIX:-}}"
+[ -n "$PREFIX" ] || PREFIX="$(cd "$(dirname "$self")/.." && pwd)"
+
+CDIR="$PREFIX/share/cccodroid/components/gpu-driver-mali"
+P="$CDIR/lib/probe.py"
+if [ ! -f "$P" ]; then
+  echo "mali-info: 找不到 $P —— 组件包不完整，重装 gpu-driver-mali" >&2
+  exit 1
+fi
+
+exec python3 "$P" summary

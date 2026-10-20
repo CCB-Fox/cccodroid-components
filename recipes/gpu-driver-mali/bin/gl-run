@@ -1,0 +1,29 @@
+#!{{PREFIX}}/bin/sh
+# gl-run — 用设备自带的厂商 Mali GLES 驱动运行程序（cccodroid gpu-driver-mali）
+#
+# 原理：预加载 Android 的系统 libEGL / libGLESv2（与 Termux Mesa 的库同 SONAME），
+# 程序的 EGL/GLES 调用就落到系统库上；它们再经 sphal namespace 加载
+# /vendor/lib64/egl/libGLES_mali.so。没有显示服务器也能建离屏上下文。
+#
+# 用法：gl-run <程序> [参数...]
+set -u
+
+SYS_EGL=/system/lib64/libEGL.so
+SYS_GLES=/system/lib64/libGLESv2.so
+
+if [ "$#" -eq 0 ]; then
+  echo "用法: gl-run <程序> [参数...]" >&2
+  exit 2
+fi
+for f in "$SYS_EGL" "$SYS_GLES"; do
+  if [ ! -r "$f" ]; then
+    echo "gl-run: 读不到 $f —— 这台设备没有可用的系统 EGL/GLES" >&2
+    exit 127
+  fi
+done
+
+case ":${LD_PRELOAD:-}:" in
+  *":$SYS_EGL:"*) exec "$@" ;;
+esac
+
+LD_PRELOAD="$SYS_EGL:$SYS_GLES${LD_PRELOAD:+:$LD_PRELOAD}" exec "$@"
