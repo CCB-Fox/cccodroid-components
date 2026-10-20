@@ -38,7 +38,7 @@ function inContainer(script, timeoutSec) {
 }
 
 const rows = [];
-const skipWhy = (t) => t.needs.gpu === "adreno" || t.needs.gpu === true ? "要 GPU" : t.needs.display ? "要屏幕" : t.needs.shizuku ? "要 Shizuku" : null;
+const skipWhy = (t) => t.needs.gpu === "adreno" || t.needs.gpu === "mali" || t.needs.gpu === true ? "要 GPU" : t.needs.display ? "要屏幕" : t.needs.shizuku ? "要 Shizuku" : null;
 const todo = targets.filter((t) => {
   if (!t.ok) { rows.push([t.id, "—", "审计有 ❌，没跑"]); return false; }
   if (!t.selftest) { rows.push([t.id, "—", "没有 selftest"]); return false; }

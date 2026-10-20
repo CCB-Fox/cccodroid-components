@@ -114,10 +114,10 @@ for (const r of recipes()) {
     if (!Array.isArray(r.requires) || r.requires.some((d) => typeof d !== "string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(d) || d === r.id)) err(n, "requires 是组件 id 的数组（不能写自己）");
     else for (const d of r.requires) wanted.push([d, n]);
   }
-  // needs：gpu 可以写 "adreno" —— 只能用在高通骁龙上（走 /dev/kgsl-3d0），App 在别家 SoC 上直接不给装
+  // needs：gpu 可以写 "adreno"（只能用在高通骁龙上，走 /dev/kgsl-3d0）或 "mali"（只能用在 ARM Mali 上，走 /dev/mali0），App 在别家 SoC 上直接不给装
   for (const [k, v] of Object.entries(r.needs || {})) {
     if (!["shizuku", "display", "gpu"].includes(k)) err(n, `needs 里不认识的键: ${k}`);
-    else if (k === "gpu" ? ![true, false, "adreno"].includes(v) : typeof v !== "boolean") err(n, `needs.${k} 的值不对（gpu 是 true / false / "adreno"，其余是 true / false）`);
+    else if (k === "gpu" ? ![true, false, "adreno", "mali"].includes(v) : typeof v !== "boolean") err(n, `needs.${k} 的值不对（gpu 是 true / false / "adreno" / "mali"，其余是 true / false）`);
   }
   const sk = path.join(r.dir, "skill", "SKILL.md");
   if (!fs.existsSync(sk)) err(n, "缺 skill/SKILL.md（告诉 Claude 怎么用这个组件）");
